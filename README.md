@@ -2,6 +2,27 @@
 
 中文 | [English](#english)
 
+## Quick Install
+
+```bash
+# Codex
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target codex --ref v1.0.0
+```
+
+```bash
+# OpenClaw
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target openclaw --ref v1.0.0
+```
+
+```bash
+# OpenClaw workspace-local skills/
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.0.0
+```
+
+复制即用。安装后重启 Codex / OpenClaw。
+
+---
+
 一个面向产品开发与运营决策的 Reddit 市场监控 Skill。
 
 它不是热帖搬运器，而是一个把 Reddit 讨论转成：
@@ -76,7 +97,7 @@ curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/m
 固定到某个 tag 或版本:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target codex --ref v1.0.0
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target codex --ref v1.0.0
 ```
 
 ### 推荐使用方式
@@ -124,6 +145,27 @@ curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/m
 ---
 
 ## English
+
+## Quick Install Card
+
+```bash
+# Codex
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target codex --ref v1.0.0
+```
+
+```bash
+# OpenClaw
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target openclaw --ref v1.0.0
+```
+
+```bash
+# OpenClaw workspace-local skills/
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.0.0
+```
+
+Copy, run, then restart Codex / OpenClaw.
+
+---
 
 `reddit-market-monitor` is a Reddit monitoring skill designed for product, growth, and operations decisions.
 
@@ -195,7 +237,7 @@ curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/m
 Pin to a tag or version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target codex --ref v1.0.0
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target codex --ref v1.0.0
 ```
 
 ### Recommended Workflow
