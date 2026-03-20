@@ -51,6 +51,34 @@
 
 重启 Codex 后即可生效。
 
+### 一键安装
+
+适用于直接从 GitHub 安装最新版。
+
+Codex:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target codex
+```
+
+OpenClaw 全局 skills 目录:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target openclaw
+```
+
+OpenClaw 工作区本地 `skills/` 目录:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --dest "$(pwd)/skills"
+```
+
+固定到某个 tag 或版本:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target codex --ref v1.0.0
+```
+
 ### 推荐使用方式
 
 1. 如果你还没有明确监控策略，先从 [templates/monitor_task_config.template.yaml](./templates/monitor_task_config.template.yaml) 生成一个最小可跑的 task config。
@@ -141,6 +169,34 @@ Copy this directory to:
 ```
 
 Then restart Codex.
+
+### One-Command Install
+
+Use these commands to install the latest version directly from GitHub.
+
+Codex:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target codex
+```
+
+OpenClaw global skills directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target openclaw
+```
+
+OpenClaw workspace-local `skills/` directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --dest "$(pwd)/skills"
+```
+
+Pin to a tag or version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target codex --ref v1.0.0
+```
 
 ### Recommended Workflow
 
