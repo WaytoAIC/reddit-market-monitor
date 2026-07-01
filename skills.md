@@ -323,6 +323,46 @@
 
 ---
 
+## 5B. 报告产物格式（md / md+html）
+
+报告默认产出 Markdown（`.md`）。可额外产出一份同名 `.html`，方便直接在浏览器查看、发群、发飞书。
+
+### 5B.1 首次使用时询问
+
+生成**某个任务的第一份报告之前**，若满足：
+
+- `reporting.report_output_formats` 为空（`[]`），且
+- `reporting.ask_output_format_on_first_use = true`
+
+则**先询问用户一次**（只问这一次）：
+
+> 报告产物要哪种格式？
+> - `md`：只生成 Markdown
+> - `md+html`：额外生成一份带样式的 HTML（便于浏览/分享）
+
+拿到选择后：
+
+1. 把结果写回该任务 `config.yaml` 的 `reporting.report_output_formats`（`[md]` 或 `[md, html]`）。
+2. 之后不再询问，直接按该设置产出。
+
+若用户已在 config 里显式设置 `report_output_formats`，则**不询问**，直接遵循。
+
+### 5B.2 生成 HTML
+
+当 `report_output_formats` 含 `html` 时，在写完 `.md` 报告后，对同一文件执行零依赖转换脚本：
+
+```bash
+node {baseDir}/skills/reddit-readonly/scripts/md_to_html.mjs <report>.md <report>.html
+```
+
+- 脚本无第三方依赖，支持标题、GFM 表格、列表、加粗、行内代码、链接、分割线、引用；
+- 表格中的裸 Reddit permalink 会自动转成可点击链接；`P1/P2/P3` 优先级单元格自动着色；
+- 产物为**自包含单文件 HTML**（样式内联），可直接双击打开或分享。
+
+生成后在报告结尾或回复中，同时给出 `.md` 与 `.html` 两个产物路径。
+
+---
+
 ## 6. 单个监控组的执行流程（Daily / Weekly 共用骨架）
 
 以下流程适用于每个监控组。

@@ -72,17 +72,17 @@
 
 ```bash
 # Codex
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target codex --ref v1.1.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.0/install.sh | bash -s -- --target codex --ref v1.2.0
 ```
 
 ```bash
 # OpenClaw
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target openclaw --ref v1.1.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.0/install.sh | bash -s -- --target openclaw --ref v1.2.0
 ```
 
 ```bash
 # OpenClaw workspace-local skills/
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.1.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.2.0
 ```
 
 复制即用。安装后重启 Codex / OpenClaw。
@@ -126,6 +126,7 @@ curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1
 - 内置 `reddit-readonly` 子技能，用户无需额外安装第二个 skill
 - 支持多组监控，但推荐按“一个监控任务对应一个 config”来组织
 - 输出默认表格优先，更适合日报、周报和决策面板阅读
+- 报告产物支持 `md` 或 `md+html`（首次使用询问一次；HTML 为自包含单文件，permalink 自动可点、优先级自动着色）
 - 支持长期 VOC 存档、主题记忆、偏好学习
 
 ### 安装
@@ -163,7 +164,7 @@ curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main
 固定到某个 tag 或版本:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target codex --ref v1.1.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.0/install.sh | bash -s -- --target codex --ref v1.2.0
 ```
 
 ### 推荐使用方式
@@ -227,17 +228,17 @@ Reddit 已于 2026 年 5 月停用匿名 `.json` 端点，数据中心 IP 直连
 
 ```bash
 # Codex
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target codex --ref v1.1.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.0/install.sh | bash -s -- --target codex --ref v1.2.0
 ```
 
 ```bash
 # OpenClaw
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target openclaw --ref v1.1.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.0/install.sh | bash -s -- --target openclaw --ref v1.2.0
 ```
 
 ```bash
 # OpenClaw workspace-local skills/
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.1.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.2.0
 ```
 
 Copy, run, then restart Codex / OpenClaw.
@@ -277,6 +278,7 @@ It is not a repost bot. It turns Reddit discussions into:
 - Bundles `reddit-readonly`, so users do not need to install a second skill
 - Supports multi-group monitoring, while recommending one config per monitoring task
 - Uses table-first output for easier reading in daily and weekly decision workflows
+- Reports export as `md` or `md+html` (asked once on first use; HTML is a self-contained single file with clickable permalinks and priority coloring)
 - Supports long-term VOC archiving, theme memory, and preference learning
 
 ### Installation
@@ -314,7 +316,7 @@ curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main
 Pin to a tag or version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target codex --ref v1.1.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.0/install.sh | bash -s -- --target codex --ref v1.2.0
 ```
 
 ### Recommended Workflow

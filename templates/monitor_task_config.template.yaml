@@ -65,6 +65,9 @@ curation_defaults:
 
 reporting:
   output_language: zh-CN
+  # 报告产物格式：[]=首次生成前询问一次(md / md+html)并写回；或直接写死 [md] / [md, html]
+  report_output_formats: []
+  ask_output_format_on_first_use: true
   generate_group_reports_separately: true
   generate_master_summary: false
   rendering_preferences:

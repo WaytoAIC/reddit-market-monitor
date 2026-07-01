@@ -6,6 +6,14 @@ The format is intentionally simple and optimized for release notes and repositor
 
 ## [Unreleased]
 
+## [v1.2.0] - 2026-07-01
+
+### Added
+
+- **Optional HTML report output.** Daily/weekly reports can now be produced as `md` or `md+html`. On first use the skill asks the user which they want and writes the choice back to the task config (`reporting.report_output_formats`).
+- Zero-dependency Markdown→HTML renderer at `skills/reddit-readonly/scripts/md_to_html.mjs`: self-contained single-file HTML, GFM tables, auto-linked bare Reddit permalinks, `P1/P2/P3` priority coloring, Chinese-friendly styling.
+- `reporting.report_output_formats`, `reporting.ask_output_format_on_first_use`, and `reporting.html_renderer` config fields (plus the same in the task template); skills.md section 5B documents the behavior.
+
 ## [v1.1.0] - 2026-07-01
 
 ### Changed

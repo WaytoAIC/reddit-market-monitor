@@ -55,6 +55,7 @@ description: "Use when the user asks for Reddit market monitoring, subreddit mon
 - 可以按关键词搜索帖子（支持跨版块与单版块）
 - 可以拉取某帖的评论（扁平列表）
 - 可以生成监控报告、shortlist、digest、VOC archive
+- 报告默认产出 `.md`；可选额外产出带样式的 `.html`（首次使用询问用户 `md` 或 `md+html`，见 skills.md 5B）
 - 不可以发帖、评论、点赞、点踩或做任何 Reddit 交互
 
 如果用户要求自动去 Reddit 互动，要明确拒绝，并说明本技能只读。

@@ -292,6 +292,11 @@ scoring:
 reporting:
   output_language: zh-CN # 中文输出
   preserve_original_quotes_language: true # 保留英文原声原文
+  # 报告产物格式：md（仅 Markdown）或 md+html（额外生成同名 .html 便于分享/浏览）。
+  # report_output_formats 为空时，首次生成报告前会询问用户一次，并把选择写回本 config。
+  report_output_formats: [] # []=未设置(首次询问)；可选 [md] 或 [md, html]
+  ask_output_format_on_first_use: true # 首次生成报告且未设置格式时，询问用户 md / md+html
+  html_renderer: "skills/reddit-readonly/scripts/md_to_html.mjs" # 零依赖 md->html 转换脚本
   generate_group_reports_separately: true # 是否分组输出报告
   generate_master_summary: true # 是否额外生成总览摘要
   master_summary_name: "Reddit 多组监控总览" # 多组汇总标题
