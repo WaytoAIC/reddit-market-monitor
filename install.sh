@@ -2,7 +2,7 @@
 
 set -eu
 
-REPO="restart2000/reddit-market-monitor"
+REPO="WaytoAIC/reddit-market-monitor"
 REF="main"
 SKILL_NAME="reddit-market-monitor"
 TARGET="auto"
@@ -23,7 +23,7 @@ Options:
   --target   Install target. auto|codex|openclaw. Default: auto
   --dest     Override the skills root directory. The script installs into DIR/reddit-market-monitor
   --ref      Branch or tag to install. Default: main
-  --repo     GitHub repo in OWNER/REPO form. Default: restart2000/reddit-market-monitor
+  --repo     GitHub repo in OWNER/REPO form. Default: WaytoAIC/reddit-market-monitor
   -h, --help Show this help
 EOF
 }

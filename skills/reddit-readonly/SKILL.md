@@ -11,6 +11,21 @@ metadata: {"clawdbot":{"emoji":"🔎","requires":{"bins":["node"]}}}
 
 Read-only Reddit browsing for Clawdbot.
 
+## Backend (2026)
+
+Reddit deprecated anonymous `.json` endpoints in May 2026 — datacenter IPs get
+HTTP 403. This skill now reads through **PullPush.io**, a free, no-auth
+Pushshift-successor archive that mirrors Reddit's data model. **No API key,
+OAuth, login, or bot account is required.** Every result still carries a
+`permalink` to the real Reddit thread so the user opens it to reply manually.
+
+Trade-offs vs the official API: PullPush is strong at *search/mining* (by
+subreddit, keyword, author, time window) but has **no "hot"/"rising" ranking**
+(posts are approximated by recency or score) and returns comments as a **flat
+list** (no nested reply tree). This is the right tool for finding posts and
+building shortlists; it is a near-real-time archive, so brand-new posts may lag
+by minutes.
+
 ## What this skill is for
 
 - Finding posts in one or more subreddits (hot/new/top/controversial/rising)
@@ -39,11 +54,11 @@ All commands print JSON to stdout.
 
 ```bash
 node {baseDir}/scripts/reddit-readonly.mjs posts <subreddit> \
-  --sort hot|new|top|controversial|rising \
+  --sort new|top|controversial \
   --time day|week|month|year|all \
-  --limit 10 \
-  --after <token>
+  --limit 10
 ```
+Note: `new` = newest first; `top`/`controversial` = by score (optionally within `--time`). `hot`/`rising` are not available from PullPush and fall back to recency.
 
 ### 2) Search posts
 
@@ -58,8 +73,8 @@ node {baseDir}/scripts/reddit-readonly.mjs search all "<query>" --limit 10
 ### 3) Get comments for a post
 
 ```bash
-# By post id or URL
-node {baseDir}/scripts/reddit-readonly.mjs comments <post_id|url> --limit 50 --depth 6
+# By post id or URL — returns a FLAT list of the post's comments (no nested tree)
+node {baseDir}/scripts/reddit-readonly.mjs comments <post_id|url> --limit 50 --includeDeleted false --maxChars 1000
 ```
 
 ### 4) Recent comments across a subreddit
@@ -71,7 +86,7 @@ node {baseDir}/scripts/reddit-readonly.mjs recent-comments <subreddit> --limit 2
 ### 5) Thread bundle (post + comments)
 
 ```bash
-node {baseDir}/scripts/reddit-readonly.mjs thread <post_id|url> --commentLimit 50 --depth 6
+node {baseDir}/scripts/reddit-readonly.mjs thread <post_id|url> --commentLimit 50
 ```
 
 ### 6) Find opportunities (multi-subreddit helper)
@@ -105,12 +120,20 @@ node {baseDir}/scripts/reddit-readonly.mjs find \
 
 ## Troubleshooting
 
-- If Reddit returns HTML, re-run the command (the script detects this and returns an error).
-- If requests fail repeatedly, reduce `--limit` and/or set slower pacing via env vars:
+- Reads go to `api.pullpush.io`. If it returns HTML or 5xx, the script retries with backoff; if it still fails, PullPush is likely rate-limiting or down — reduce `--limit` and slow the pace via env vars below, or retry later.
+- If requests fail repeatedly, reduce `--limit` and/or set slower pacing:
 
 ```bash
 export REDDIT_RO_MIN_DELAY_MS=800
 export REDDIT_RO_MAX_DELAY_MS=1800
 export REDDIT_RO_TIMEOUT_MS=25000
-export REDDIT_RO_USER_AGENT='script:clawdbot-reddit-readonly:v1.0.0 (personal)'
 ```
+
+- To force the legacy official-Reddit-endpoint path (only works with OAuth or a residential/unblocked IP — otherwise 403), set `REDDIT_RO_BACKEND=reddit`. Default/unset uses PullPush.
+
+## Compliance note
+
+Low-volume, human-driven reading to build a shortlist is fine. Do **not** use
+this for large-scale automated mining that feeds a commercial pipeline or trains
+AI models — Reddit's Responsible Builder Policy prohibits that regardless of the
+data source. Keep usage polite and permalink-back to the real thread.

@@ -43,11 +43,17 @@ description: "Use when the user asks for Reddit market monitoring, subreddit mon
 
 - `node {baseDir}/skills/reddit-readonly/scripts/reddit-readonly.mjs ...`
 
+数据后端（v1.1.0 起）：
+
+- 子技能通过 **PullPush.io** 读取（免费、无需 OAuth / API Key / 登录 / 机器人账号）。Reddit 匿名 `.json` 端点已于 2026-05 停用，数据中心 IP 直连返回 403。
+- 因此抓取模式中 `hot` / `rising` 无法实时获取，会退化为按时间（recency）近似；`top` / `controversial` 按分数近似；评论为**扁平列表**（无嵌套树）。这些不影响监控与 VOC 挖掘。
+- 每条结果仍带真实 `permalink`。
+
 能力边界：
 
-- 可以浏览 subreddit 的 `hot` / `new` / `top`
-- 可以按关键词搜索帖子
-- 可以拉取评论线程
+- 可以按 `new`（最新）/ `top`（高赞）浏览 subreddit（`hot` 退化为最新）
+- 可以按关键词搜索帖子（支持跨版块与单版块）
+- 可以拉取某帖的评论（扁平列表）
 - 可以生成监控报告、shortlist、digest、VOC archive
 - 不可以发帖、评论、点赞、点踩或做任何 Reddit 交互
 
@@ -109,10 +115,10 @@ description: "Use when the user asks for Reddit market monitoring, subreddit mon
 
 每组都应结合：
 
-- `hot`
-- `new`
-- `top`
-- `search`
+- `new`（最新）
+- `top`（高赞，可配合时间窗）
+- `search`（关键词，支持跨版/单版）
+- （`hot` / `rising` 经 PullPush 无实时排序，会退化为 `new`，无需单独跑）
 
 同时：
 

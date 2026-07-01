@@ -72,17 +72,17 @@
 
 ```bash
 # Codex
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target codex --ref v1.0.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target codex --ref v1.1.0
 ```
 
 ```bash
 # OpenClaw
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target openclaw --ref v1.0.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target openclaw --ref v1.1.0
 ```
 
 ```bash
 # OpenClaw workspace-local skills/
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.0.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.1.0
 ```
 
 复制即用。安装后重启 Codex / OpenClaw。
@@ -145,25 +145,25 @@ curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v
 Codex:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target codex
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main/install.sh | bash -s -- --target codex
 ```
 
 OpenClaw 全局 skills 目录:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target openclaw
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main/install.sh | bash -s -- --target openclaw
 ```
 
 OpenClaw 工作区本地 `skills/` 目录:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --dest "$(pwd)/skills"
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main/install.sh | bash -s -- --dest "$(pwd)/skills"
 ```
 
 固定到某个 tag 或版本:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target codex --ref v1.0.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target codex --ref v1.1.0
 ```
 
 ### 推荐使用方式
@@ -204,9 +204,19 @@ curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v
     └── reddit-readonly/
 ```
 
+### 数据后端说明（重要）
+
+Reddit 已于 2026 年 5 月停用匿名 `.json` 端点，数据中心 IP 直连会返回 HTTP 403。因此内置 `reddit-readonly` 子技能自 v1.1.0 起改为通过 **[PullPush.io](https://pullpush.io)** 读取——一个免费、无需鉴权的 Pushshift 继任存档，数据结构与 Reddit 一致。
+
+- **无需** Reddit API Key、OAuth、登录或机器人账号，开箱即用。
+- 每条结果仍带 `permalink`，可点开真实 Reddit 原帖人工查看/回复。
+- 取舍：PullPush 强在搜索与挖掘（按版块、关键词、作者、时间窗），但**没有 `hot`/`rising` 实时排序**（按时间或分数近似），评论为**扁平列表**（无嵌套回复树），且为近实时存档，新帖可能延迟数分钟。
+- 如需切回官方端点，设环境变量 `REDDIT_RO_BACKEND=reddit`（仅在拥有 OAuth 或住宅 IP 时可用，否则 403）。
+- 合规：仅用于低频、人工驱动的只读浏览。请勿用于大规模自动化挖取以喂商业管线或训练 AI 模型——无论数据源为何，均违反 Reddit Responsible Builder Policy。
+
 ### 说明
 
-- 当前仓库里保留了 `reddit-readonly.zip` 占位文件，但主 Skill 实际已经改为使用 `skills/reddit-readonly/` 目录中的内置子技能。
+- `reddit-readonly.zip` 与 `skills/reddit-readonly/` 目录中的内置子技能保持同步，主 Skill 实际调用目录版本。
 - 当前仓库 README 顶部已加入 `Way to AIC` 固定项目前缀，后续 Way to AIC 项目可复用同一前缀模板。
 
 ---
@@ -217,17 +227,17 @@ curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v
 
 ```bash
 # Codex
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target codex --ref v1.0.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target codex --ref v1.1.0
 ```
 
 ```bash
 # OpenClaw
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target openclaw --ref v1.0.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target openclaw --ref v1.1.0
 ```
 
 ```bash
 # OpenClaw workspace-local skills/
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.0.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.1.0
 ```
 
 Copy, run, then restart Codex / OpenClaw.
@@ -286,25 +296,25 @@ Use these commands to install the latest version directly from GitHub.
 Codex:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target codex
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main/install.sh | bash -s -- --target codex
 ```
 
 OpenClaw global skills directory:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --target openclaw
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main/install.sh | bash -s -- --target openclaw
 ```
 
 OpenClaw workspace-local `skills/` directory:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/main/install.sh | bash -s -- --dest "$(pwd)/skills"
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main/install.sh | bash -s -- --dest "$(pwd)/skills"
 ```
 
 Pin to a tag or version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target codex --ref v1.0.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.1.0/install.sh | bash -s -- --target codex --ref v1.1.0
 ```
 
 ### Recommended Workflow
@@ -345,7 +355,17 @@ If you need a commercial license, contact the author separately.
     └── reddit-readonly/
 ```
 
+### Data Backend (Important)
+
+Reddit deprecated its anonymous `.json` endpoints in May 2026; datacenter IPs now get HTTP 403 on direct calls. As of v1.1.0 the bundled `reddit-readonly` subskill therefore reads through **[PullPush.io](https://pullpush.io)** — a free, no-auth Pushshift successor archive that mirrors Reddit's data model.
+
+- **No** Reddit API key, OAuth, login, or bot account required — works out of the box.
+- Every result still carries a `permalink` back to the real Reddit thread for manual review/reply.
+- Trade-offs: PullPush is strong at search/mining (by subreddit, keyword, author, time window) but has **no `hot`/`rising` ranking** (approximated by recency or score), returns comments as a **flat list** (no nested reply tree), and is a near-real-time archive so brand-new posts may lag by minutes.
+- To force the legacy official endpoints, set `REDDIT_RO_BACKEND=reddit` (only works with OAuth or a residential IP; otherwise 403).
+- Compliance: use for low-volume, human-driven reading only. Do not use for large-scale automated mining that feeds a commercial pipeline or trains AI models — that violates Reddit's Responsible Builder Policy regardless of data source.
+
 ### Note
 
-- The repository still contains a placeholder `reddit-readonly.zip`, but the skill now actually uses the bundled subskill in `skills/reddit-readonly/`.
+- `reddit-readonly.zip` is kept in sync with the bundled subskill under `skills/reddit-readonly/`; the main skill calls the directory version.
 - This repository now includes the fixed `Way to AIC` README prefix at the top, intended for reuse across future Way to AIC GitHub projects.

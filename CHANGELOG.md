@@ -6,11 +6,23 @@ The format is intentionally simple and optimized for release notes and repositor
 
 ## [Unreleased]
 
-### Added
-
-- Reusable `templates/README_PREFIX_WAYTOAIC.md` block for future Way to AIC GitHub repositories
+## [v1.1.0] - 2026-07-01
 
 ### Changed
+
+- **`reddit-readonly` subskill now reads through PullPush.io instead of Reddit's anonymous `.json` endpoints.** Reddit deprecated those endpoints in May 2026 and datacenter IPs get HTTP 403; PullPush is a free, no-auth Pushshift successor, so the skill needs **no API key, OAuth, login, or bot account**. Every result still carries a real Reddit `permalink`.
+- `posts` sort options are now `new` / `top` / `controversial`; `hot` and `rising` are not available from PullPush and fall back to recency.
+- `comments` / `thread` now return a **flat comment list** (PullPush exposes no nested reply tree); `--depth` is removed.
+- Repo owner references and install/raw URLs updated from `restart2000` to `WaytoAIC`.
+- Bundled `reddit-readonly.zip` regenerated to match the updated subskill.
+
+### Added
+
+- `REDDIT_RO_BACKEND=reddit` escape hatch to force the legacy official-endpoint path (requires OAuth or a residential IP).
+- Reusable `templates/README_PREFIX_WAYTOAIC.md` block for future Way to AIC GitHub repositories
+- README "Data Backend" section documenting the PullPush switch, trade-offs, and compliance notes.
+
+### Changed (prior, unreleased)
 
 - Added the fixed `Way to AIC` brand and community prefix to the top of `README.md`
 
@@ -40,5 +52,5 @@ First public release.
 - Recommended stable install path for this release:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/restart2000/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target codex --ref v1.0.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.0.0/install.sh | bash -s -- --target codex --ref v1.0.0
 ```

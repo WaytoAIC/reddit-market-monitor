@@ -3,7 +3,15 @@
 /**
  * reddit-readonly.mjs
  *
- * Read-only Reddit CLI using public JSON endpoints.
+ * Read-only Reddit CLI.
+ *
+ * Backend (2026): Reddit deprecated anonymous .json endpoints (datacenter IPs
+ * get HTTP 403). This tool now reads through PullPush.io — a free, no-auth
+ * Pushshift-successor archive that mirrors Reddit's data model. Every result
+ * still carries a permalink so you open the real Reddit thread to reply manually.
+ *
+ * Set REDDIT_RO_BACKEND=reddit to force the legacy official-endpoint path
+ * (only useful once you have OAuth / a residential IP).
  *
  * Commands output JSON to stdout:
  * - Success: { ok: true, data: ... }
@@ -11,12 +19,14 @@
  */
 
 const BASE_URL = 'https://www.reddit.com';
+const PULLPUSH_BASE = 'https://api.pullpush.io/reddit/search';
+const BACKEND = String(process.env.REDDIT_RO_BACKEND || 'pullpush').toLowerCase();
 
 const DEFAULTS = {
   minDelayMs: parseInt(process.env.REDDIT_RO_MIN_DELAY_MS || '500', 10),
   maxDelayMs: parseInt(process.env.REDDIT_RO_MAX_DELAY_MS || '1500', 10),
-  timeoutMs: parseInt(process.env.REDDIT_RO_TIMEOUT_MS || '20000', 10),
-  userAgent: process.env.REDDIT_RO_USER_AGENT || 'script:clawdbot-reddit-readonly:v1.0.0',
+  timeoutMs: parseInt(process.env.REDDIT_RO_TIMEOUT_MS || '25000', 10),
+  userAgent: process.env.REDDIT_RO_USER_AGENT || 'script:clawdbot-reddit-readonly:v2.0.0',
   maxChars: 1000,
 };
 
@@ -52,10 +62,6 @@ function parseCommaList(s) {
 }
 
 function parseArgs(argv) {
-  // Minimal parser:
-  // - positional args in _
-  // - --key value
-  // - --flag
   const out = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -108,12 +114,11 @@ async function fetchJson(url, { timeoutMs } = {}) {
     const text = await res.text();
 
     if (!res.ok) {
-      // reddit sometimes returns HTML or structured error JSON; include a small snippet
       throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
     }
 
     if (text.trim().startsWith('<')) {
-      throw new Error('Reddit returned HTML instead of JSON. Try again later or reduce request rate.');
+      throw new Error('Upstream returned HTML instead of JSON. Try again later or reduce request rate.');
     }
 
     return JSON.parse(text);
@@ -131,11 +136,8 @@ async function fetchJsonWithRetry(url, { retries = 3 } = {}) {
     } catch (e) {
       lastErr = e;
       const msg = String(e && e.message ? e.message : e);
-
-      // Backoff on rate limiting / transient errors
       const isRetryable = msg.includes('HTTP 429') || msg.includes('HTTP 5') || msg.includes('aborted') || msg.includes('HTML instead of JSON');
       if (!isRetryable || attempt === retries) break;
-
       const backoff = 600 * Math.pow(2, attempt) + randInt(0, 400);
       await sleep(backoff);
       attempt++;
@@ -144,11 +146,29 @@ async function fetchJsonWithRetry(url, { retries = 3 } = {}) {
   throw lastErr || new Error('Request failed');
 }
 
-function buildUrl(pathWithQuery) {
-  // If caller passes a full URL, keep it.
-  if (/^https?:\/\//i.test(pathWithQuery)) return pathWithQuery;
+// -------------------- PullPush backend --------------------
 
-  // Ensure .json is present before query string.
+// Map a Reddit-style time window to an epoch-seconds "after" bound.
+function timeToAfterEpoch(time) {
+  const map = { day: 86400, week: 604800, month: 2592000, year: 31536000 };
+  const secs = map[String(time)];
+  if (!secs) return null; // 'all' or unknown => no lower bound
+  return Math.floor(nowMs() / 1000) - secs;
+}
+
+// kind: 'submission' | 'comment'
+async function pullpush(kind, params) {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
+  }
+  const url = `${PULLPUSH_BASE}/${kind}/?${qs.toString()}`;
+  const json = await fetchJsonWithRetry(url);
+  return Array.isArray(json && json.data) ? json.data : [];
+}
+
+function buildUrl(pathWithQuery) {
+  if (/^https?:\/\//i.test(pathWithQuery)) return pathWithQuery;
   const [path, qs] = String(pathWithQuery).split('?');
   const jsonPath = path.endsWith('.json') ? path : `${path}.json`;
   return qs ? `${BASE_URL}${jsonPath}?${qs}` : `${BASE_URL}${jsonPath}`;
@@ -157,14 +177,10 @@ function buildUrl(pathWithQuery) {
 function extractPostId(input) {
   const s = String(input || '').trim();
   if (!s) return null;
-
-  // If it's a raw ID
-  if (/^[a-z0-9]{5,10}$/i.test(s)) return s;
-
-  // If it's a reddit URL
   const m = s.match(/comments\/([a-z0-9]{5,10})/i);
   if (m) return m[1];
-
+  if (/^t3_/.test(s)) return s.slice(3);
+  if (/^[a-z0-9]{5,10}$/i.test(s)) return s;
   return null;
 }
 
@@ -175,9 +191,11 @@ function normalisePermalink(permalink) {
   return `${BASE_URL}/${permalink}`;
 }
 
+// Works on both raw PullPush objects and Reddit {data} wrappers.
 function normalisePost(p) {
   const d = p && p.data ? p.data : p;
   const createdUtc = d.created_utc || 0;
+  const permalink = d.permalink || (d.subreddit && d.id ? `/r/${d.subreddit}/comments/${d.id}/` : null);
   return {
     id: d.id,
     fullname: d.name || (d.id ? `t3_${d.id}` : null),
@@ -188,7 +206,7 @@ function normalisePost(p) {
     num_comments: d.num_comments,
     created_utc: createdUtc,
     created_iso: createdUtc ? toIsoFromUtcSeconds(createdUtc) : null,
-    permalink: normalisePermalink(d.permalink),
+    permalink: normalisePermalink(permalink),
     url: d.url,
     is_self: d.is_self,
     over_18: d.over_18,
@@ -197,72 +215,27 @@ function normalisePost(p) {
   };
 }
 
-function normaliseComment(c, { depth, parentFullname, maxChars }) {
+function normaliseComment(c, { depth = 0, maxChars = DEFAULTS.maxChars } = {}) {
   const d = c && c.data ? c.data : c;
   const createdUtc = d.created_utc || 0;
   const body = d.body || '';
+  const permalink = d.permalink || (d.subreddit && d.link_id && d.id
+    ? `/r/${d.subreddit}/comments/${String(d.link_id).replace(/^t3_/, '')}/_/${d.id}/`
+    : null);
   return {
     id: d.id,
     fullname: d.name || (d.id ? `t1_${d.id}` : null),
+    subreddit: d.subreddit,
     author: d.author,
     score: d.score,
     created_utc: createdUtc,
     created_iso: createdUtc ? toIsoFromUtcSeconds(createdUtc) : null,
     depth,
-    parent_fullname: parentFullname || d.parent_id || null,
-    permalink: normalisePermalink(d.permalink),
+    parent_id: d.parent_id || null,
+    link_id: d.link_id || null,
+    permalink: normalisePermalink(permalink),
     body_snippet: body ? String(body).slice(0, maxChars) : null,
   };
-}
-
-function parseCommentsTree(children, { depth = 0, parentFullname = null, maxDepth = 8, includeDeleted = false, maxChars = DEFAULTS.maxChars }) {
-  const out = [];
-  let moreCount = 0;
-
-  if (!Array.isArray(children)) return { comments: out, moreCount };
-
-  for (const node of children) {
-    if (!node) continue;
-
-    if (node.kind === 'more') {
-      // We deliberately do not fetch morechildren in this read-only script.
-      // Track the count so the caller knows the thread is partial.
-      const count = node?.data?.count;
-      moreCount += typeof count === 'number' ? count : 0;
-      continue;
-    }
-
-    if (node.kind !== 't1') continue;
-
-    const author = node?.data?.author;
-    const body = node?.data?.body;
-
-    const isDeleted = author === '[deleted]' || body === '[deleted]' || body === '[removed]' || body == null;
-    if (!includeDeleted && isDeleted) {
-      // Still include if it has replies? In practice, skip to reduce noise.
-      // If it has replies, we still traverse.
-    } else {
-      out.push(normaliseComment(node, { depth, parentFullname, maxChars }));
-    }
-
-    if (depth < maxDepth) {
-      const replies = node?.data?.replies;
-      const replyChildren = replies && replies.data && Array.isArray(replies.data.children) ? replies.data.children : null;
-      if (replyChildren) {
-        const parsed = parseCommentsTree(replyChildren, {
-          depth: depth + 1,
-          parentFullname: node?.data?.name || (node?.data?.id ? `t1_${node.data.id}` : parentFullname),
-          maxDepth,
-          includeDeleted,
-          maxChars,
-        });
-        out.push(...parsed.comments);
-        moreCount += parsed.moreCount;
-      }
-    }
-  }
-
-  return { comments: out, moreCount };
 }
 
 function keywordHits(text, keywords) {
@@ -281,33 +254,44 @@ function hoursAgo(createdUtc) {
   return deltaMs / 3600000;
 }
 
-// -------------------- Commands --------------------
+// Filter out deleted/removed comment bodies unless asked to keep them.
+function isDeletedComment(d) {
+  const body = d.body_snippet;
+  const author = d.author;
+  return author === '[deleted]' || body === '[deleted]' || body === '[removed]' || body == null;
+}
+
+// -------------------- Commands (PullPush-backed) --------------------
 
 async function cmdPosts(subreddit, args) {
-  const sort = String(args.sort || 'hot');
-  const time = String(args.time || 'day');
+  const sort = String(args.sort || 'new');
+  const time = String(args.time || 'all');
   const limit = clampInt(parseInt(args.limit || '25', 10), 1, 100, 25);
-  const after = args.after ? String(args.after) : null;
 
-  const qs = new URLSearchParams();
-  qs.set('limit', String(limit));
-  if ((sort === 'top' || sort === 'controversial') && time) qs.set('t', time);
-  if (after) qs.set('after', after);
+  // PullPush has no hot/rising ranking. Map:
+  //  top/controversial -> by score;  otherwise -> by recency.
+  const byScore = sort === 'top' || sort === 'controversial';
+  const after = byScore ? timeToAfterEpoch(time) : null;
 
-  const url = buildUrl(`/r/${subreddit}/${sort}?${qs.toString()}`);
-  const listing = await fetchJsonWithRetry(url);
+  const rows = await pullpush('submission', {
+    subreddit,
+    size: limit,
+    sort: 'desc',
+    sort_type: byScore ? 'score' : 'created_utc',
+    after,
+  });
 
-  const posts = (listing?.data?.children || [])
-    .filter((x) => x && x.kind === 't3')
-    .map((x) => normalisePost(x));
+  const posts = rows.map(normalisePost);
 
   ok({
+    source: 'pullpush',
     subreddit,
     sort,
-    time: (sort === 'top' || sort === 'controversial') ? time : null,
+    ranking_note: byScore
+      ? `approximated by score${after ? ` within last ${time}` : ''}`
+      : 'approximated by recency (PullPush has no hot/rising)',
+    time: byScore ? time : null,
     limit,
-    after: listing?.data?.after || null,
-    before: listing?.data?.before || null,
     posts,
   });
 }
@@ -316,103 +300,76 @@ async function cmdSearch(scope, query, args) {
   const sort = String(args.sort || 'relevance');
   const time = String(args.time || 'all');
   const limit = clampInt(parseInt(args.limit || '25', 10), 1, 100, 25);
-  const after = args.after ? String(args.after) : null;
 
-  const qs = new URLSearchParams();
-  qs.set('q', query);
-  qs.set('sort', sort);
-  qs.set('t', time);
-  qs.set('limit', String(limit));
-  if (after) qs.set('after', after);
+  const sortType = sort === 'top' ? 'score' : sort === 'comments' ? 'num_comments' : 'created_utc';
+  const after = timeToAfterEpoch(time);
 
-  let path;
-  if (scope === 'all') {
-    path = `/search?${qs.toString()}`;
-  } else {
-    qs.set('restrict_sr', 'on');
-    path = `/r/${scope}/search?${qs.toString()}`;
-  }
+  const rows = await pullpush('submission', {
+    q: query,
+    subreddit: scope === 'all' ? undefined : scope,
+    size: limit,
+    sort: 'desc',
+    sort_type: sortType,
+    after,
+  });
 
-  const url = buildUrl(path);
-  const listing = await fetchJsonWithRetry(url);
-
-  const posts = (listing?.data?.children || [])
-    .filter((x) => x && x.kind === 't3')
-    .map((x) => normalisePost(x));
+  const posts = rows.map(normalisePost);
 
   ok({
+    source: 'pullpush',
     scope,
     query,
     sort,
+    ranking_note: sort === 'relevance' ? 'PullPush has no relevance sort; returned newest-first' : `sorted by ${sortType}`,
     time,
     limit,
-    after: listing?.data?.after || null,
-    before: listing?.data?.before || null,
     posts,
   });
 }
 
 async function cmdRecentComments(subreddit, args) {
   const limit = clampInt(parseInt(args.limit || '25', 10), 1, 100, 25);
-  const qs = new URLSearchParams();
-  qs.set('limit', String(limit));
+  const maxChars = clampInt(parseInt(args.maxChars || String(DEFAULTS.maxChars), 10), 50, 20000, DEFAULTS.maxChars);
 
-  const url = buildUrl(`/r/${subreddit}/comments?${qs.toString()}`);
-  const listing = await fetchJsonWithRetry(url);
+  const rows = await pullpush('comment', {
+    subreddit,
+    size: limit,
+    sort: 'desc',
+    sort_type: 'created_utc',
+  });
 
-  const comments = (listing?.data?.children || [])
-    .filter((x) => x && x.kind === 't1')
-    .map((x) => {
-      const d = x.data;
-      return {
-        id: d.id,
-        fullname: d.name || (d.id ? `t1_${d.id}` : null),
-        subreddit: d.subreddit,
-        author: d.author,
-        score: d.score,
-        created_utc: d.created_utc,
-        created_iso: d.created_utc ? toIsoFromUtcSeconds(d.created_utc) : null,
-        permalink: normalisePermalink(d.permalink),
-        link_id: d.link_id || null,
-        link_title: d.link_title || null,
-        link_permalink: d.link_permalink ? normalisePermalink(d.link_permalink) : null,
-        body_snippet: d.body ? String(d.body).slice(0, clampInt(parseInt(args.maxChars || String(DEFAULTS.maxChars), 10), 50, 5000, DEFAULTS.maxChars)) : null,
-      };
-    });
+  const comments = rows.map((c) => normaliseComment(c, { maxChars }));
 
-  ok({ subreddit, limit, comments });
+  ok({ source: 'pullpush', subreddit, limit, comments });
 }
 
 async function cmdComments(postIdOrUrl, args) {
   const postId = extractPostId(postIdOrUrl);
   if (!postId) throw new Error('Could not parse post id. Provide a post id like "abc123" or a full Reddit URL.');
 
-  const limit = clampInt(parseInt(args.limit || '50', 10), 1, 500, 50);
-  const maxDepth = clampInt(parseInt(args.depth || '8', 10), 0, 20, 8);
+  const limit = clampInt(parseInt(args.limit || '50', 10), 1, 100, 50);
   const includeDeleted = String(args.includeDeleted || 'false') === 'true';
   const maxChars = clampInt(parseInt(args.maxChars || String(DEFAULTS.maxChars), 10), 50, 20000, DEFAULTS.maxChars);
 
-  const qs = new URLSearchParams();
-  qs.set('limit', String(limit));
-  // "sort" parameter for comments could be supported, but keep MVP minimal.
+  // PullPush returns a FLAT list of comments for a link (no nested tree).
+  const rows = await pullpush('comment', {
+    link_id: postId,
+    size: limit,
+    sort: 'asc',
+    sort_type: 'created_utc',
+  });
 
-  const url = buildUrl(`/comments/${postId}?${qs.toString()}`);
-  const data = await fetchJsonWithRetry(url);
-
-  // data is [postListing, commentListing]
-  const commentListing = Array.isArray(data) ? data[1] : null;
-  const children = commentListing?.data?.children || [];
-
-  const parsed = parseCommentsTree(children, { maxDepth, includeDeleted, maxChars });
+  let comments = rows.map((c) => normaliseComment(c, { maxChars }));
+  if (!includeDeleted) comments = comments.filter((c) => !isDeletedComment(c));
 
   ok({
+    source: 'pullpush',
     post_id: postId,
     limit,
-    max_depth: maxDepth,
     include_deleted: includeDeleted,
     max_chars: maxChars,
-    more_count_estimate: parsed.moreCount,
-    comments: parsed.comments,
+    tree_note: 'flat list (PullPush does not expose nested reply threads); use parent_id to reconstruct order',
+    comments,
   });
 }
 
@@ -420,30 +377,27 @@ async function cmdThread(postIdOrUrl, args) {
   const postId = extractPostId(postIdOrUrl);
   if (!postId) throw new Error('Could not parse post id. Provide a post id like "abc123" or a full Reddit URL.');
 
-  const commentLimit = clampInt(parseInt(args.commentLimit || args.limit || '50', 10), 1, 500, 50);
-  const maxDepth = clampInt(parseInt(args.depth || '8', 10), 0, 20, 8);
+  const commentLimit = clampInt(parseInt(args.commentLimit || args.limit || '50', 10), 1, 100, 50);
   const includeDeleted = String(args.includeDeleted || 'false') === 'true';
   const maxChars = clampInt(parseInt(args.maxChars || String(DEFAULTS.maxChars), 10), 50, 20000, DEFAULTS.maxChars);
 
-  const qs = new URLSearchParams();
-  qs.set('limit', String(commentLimit));
+  const postRows = await pullpush('submission', { ids: postId, size: 1 });
+  const post = postRows.length ? normalisePost(postRows[0]) : null;
 
-  const url = buildUrl(`/comments/${postId}?${qs.toString()}`);
-  const data = await fetchJsonWithRetry(url);
-
-  const postListing = Array.isArray(data) ? data[0] : null;
-  const commentListing = Array.isArray(data) ? data[1] : null;
-
-  const postChild = postListing?.data?.children?.find((x) => x && x.kind === 't3');
-  const post = postChild ? normalisePost(postChild) : null;
-
-  const children = commentListing?.data?.children || [];
-  const parsed = parseCommentsTree(children, { maxDepth, includeDeleted, maxChars });
+  const commentRows = await pullpush('comment', {
+    link_id: postId,
+    size: commentLimit,
+    sort: 'asc',
+    sort_type: 'created_utc',
+  });
+  let comments = commentRows.map((c) => normaliseComment(c, { maxChars }));
+  if (!includeDeleted) comments = comments.filter((c) => !isDeletedComment(c));
 
   ok({
+    source: 'pullpush',
     post,
-    comments: parsed.comments,
-    more_count_estimate: parsed.moreCount,
+    tree_note: 'flat comment list (PullPush)',
+    comments,
   });
 }
 
@@ -463,32 +417,22 @@ async function cmdFind(args) {
 
   const rank = String(args.rank || 'new'); // new|score|comments|match
 
+  // If maxAgeHours is set, push a matching lower bound to PullPush too.
+  const afterFromAge = maxAgeHours != null ? Math.floor(nowMs() / 1000) - Math.round(maxAgeHours * 3600) : null;
+
   const collected = [];
   const perSub = {};
 
   for (const sub of subreddits) {
-    let posts;
-
-    if (query) {
-      // Use subreddit search
-      const qs = new URLSearchParams();
-      qs.set('q', query);
-      qs.set('restrict_sr', 'on');
-      qs.set('sort', 'new');
-      qs.set('t', 'all');
-      qs.set('limit', String(perSubredditLimit));
-      const url = buildUrl(`/r/${sub}/search?${qs.toString()}`);
-      const listing = await fetchJsonWithRetry(url);
-      posts = (listing?.data?.children || []).filter((x) => x && x.kind === 't3').map((x) => normalisePost(x));
-    } else {
-      // No query provided; just take newest posts
-      const qs = new URLSearchParams();
-      qs.set('limit', String(perSubredditLimit));
-      const url = buildUrl(`/r/${sub}/new?${qs.toString()}`);
-      const listing = await fetchJsonWithRetry(url);
-      posts = (listing?.data?.children || []).filter((x) => x && x.kind === 't3').map((x) => normalisePost(x));
-    }
-
+    const rows = await pullpush('submission', {
+      subreddit: sub,
+      q: query || undefined,
+      size: perSubredditLimit,
+      sort: 'desc',
+      sort_type: 'created_utc',
+      after: afterFromAge,
+    });
+    const posts = rows.map(normalisePost);
     perSub[sub] = posts.length;
 
     for (const p of posts) {
@@ -499,11 +443,7 @@ async function cmdFind(args) {
       if (include.length > 0 && hits.length === 0) continue;
       if (exclude.length > 0 && exHits.length > 0) continue;
       if (typeof minScore === 'number' && (p.score || 0) < minScore) continue;
-
-      if (maxAgeHours != null) {
-        const h = hoursAgo(p.created_utc);
-        if (h > maxAgeHours) continue;
-      }
+      if (maxAgeHours != null && hoursAgo(p.created_utc) > maxAgeHours) continue;
 
       const reason = [];
       if (query) reason.push(`query:${query}`);
@@ -511,11 +451,7 @@ async function cmdFind(args) {
       if (maxAgeHours != null) reason.push(`age_h:${hoursAgo(p.created_utc).toFixed(1)}`);
       if (minScore) reason.push(`minScore:${minScore}`);
 
-      collected.push({
-        ...p,
-        reason,
-        match_score: hits.length,
-      });
+      collected.push({ ...p, reason, match_score: hits.length });
     }
   }
 
@@ -524,44 +460,37 @@ async function cmdFind(args) {
     if (rank === 'score') return (b.score || 0) - (a.score || 0);
     if (rank === 'comments') return (b.num_comments || 0) - (a.num_comments || 0);
     if (rank === 'match') return (b.match_score || 0) - (a.match_score || 0);
-    // default new
     return (b.created_utc || 0) - (a.created_utc || 0);
   });
 
   ok({
-    criteria: {
-      subreddits,
-      query: query || null,
-      include,
-      exclude,
-      minScore,
-      maxAgeHours,
-      perSubredditLimit,
-      maxResults,
-      rank,
-    },
-    meta: {
-      fetched_per_subreddit: perSub,
-      candidates: collected.length,
-      returned: Math.min(maxResults, ranked.length),
-    },
+    source: 'pullpush',
+    criteria: { subreddits, query: query || null, include, exclude, minScore, maxAgeHours, perSubredditLimit, maxResults, rank },
+    meta: { fetched_per_subreddit: perSub, candidates: collected.length, returned: Math.min(maxResults, ranked.length) },
     results: ranked.slice(0, maxResults),
   });
 }
 
 function usage() {
   return [
-    'Commands:',
-    '  posts <subreddit> [--sort hot|new|top|controversial|rising] [--time day|week|month|year|all] [--limit N] [--after TOKEN]',
-    '  search <subreddit|all> <query> [--sort relevance|top|new|comments] [--time all|day|week|month|year] [--limit N] [--after TOKEN]',
-    '  comments <post_id|url> [--limit N] [--depth N] [--includeDeleted true|false] [--maxChars N]',
+    'reddit-readonly (PullPush backend). Commands:',
+    '  posts <subreddit> [--sort new|top|controversial] [--time day|week|month|year|all] [--limit N]',
+    '  search <subreddit|all> <query> [--sort relevance|top|new|comments] [--time all|day|week|month|year] [--limit N]',
+    '  comments <post_id|url> [--limit N] [--includeDeleted true|false] [--maxChars N]',
     '  recent-comments <subreddit> [--limit N] [--maxChars N]',
-    '  thread <post_id|url> [--commentLimit N] [--depth N] [--includeDeleted true|false] [--maxChars N]',
+    '  thread <post_id|url> [--commentLimit N] [--includeDeleted true|false] [--maxChars N]',
     '  find --subreddits "a,b" [--query "..."] [--include "k1,k2"] [--exclude "k3"] [--minScore N] [--maxAgeHours H] [--perSubredditLimit N] [--maxResults N] [--rank new|score|comments|match]',
+    '',
+    'Note: reads via PullPush.io (free, no-auth Pushshift successor). Every result carries a permalink to the real Reddit thread.',
   ].join('\n');
 }
 
 async function main() {
+  if (BACKEND !== 'pullpush') {
+    fail(`Backend "${BACKEND}" is not implemented in this build. Only the PullPush backend is active. Unset REDDIT_RO_BACKEND to use it.`);
+    return;
+  }
+
   const args = parseArgs(process.argv.slice(2));
   const [cmd, ...rest] = args._;
 
