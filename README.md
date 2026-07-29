@@ -72,17 +72,17 @@
 
 ```bash
 # Codex
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.1/install.sh | bash -s -- --target codex --ref v1.2.1
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target codex --ref v1.3.0
 ```
 
 ```bash
 # OpenClaw
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.1/install.sh | bash -s -- --target openclaw --ref v1.2.1
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target openclaw --ref v1.3.0
 ```
 
 ```bash
 # OpenClaw workspace-local skills/
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.1/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.2.1
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.3.0
 ```
 
 复制即用。安装后重启 Codex / OpenClaw。
@@ -164,7 +164,7 @@ curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main
 固定到某个 tag 或版本:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.1/install.sh | bash -s -- --target codex --ref v1.2.1
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target codex --ref v1.3.0
 ```
 
 ### 推荐使用方式
@@ -207,13 +207,20 @@ curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2
 
 ### 数据后端说明（重要）
 
-Reddit 已于 2026 年 5 月停用匿名 `.json` 端点，数据中心 IP 直连会返回 HTTP 403。因此内置 `reddit-readonly` 子技能改为通过免费、无需鉴权的 Pushshift 继任存档读取，并自 v1.2.1 起支持**双源自动故障切换**：优先 **[PullPush.io](https://pullpush.io)**，当其宕机/过载（如 502）时自动切换到 **Arctic Shift**（arctic-shift.photon-reddit.com），返回结果的 `data.source` 字段标注实际数据源。
+Reddit 已于 2026 年 5 月停用匿名 `.json` 端点，数据中心 IP 直连会返回 HTTP 403。内置 `reddit-readonly` 子技能自 v1.3.0 起采用 **5 后端自动故障切换链**，任一数据源宕机自动切换，`data.source` 字段标注实际数据源：
 
-- **无需** Reddit API Key、OAuth、登录或机器人账号，开箱即用。
+| 顺位 | 后端 | 需要什么 | 覆盖范围 |
+|---|---|---|---|
+| 1 | `reddit`（官方 OAuth） | `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`（可选账号密码） | 全功能满血：真实 hot/rising、实时分数、嵌套评论树 |
+| 2 | `pullpush`（PullPush.io） | 无 | 全功能（含全站搜索） |
+| 3 | `arctic`（Arctic Shift） | 无 | 除全站搜索外全部（须指定版块）；高赞排序客户端近似 |
+| 4 | `serpapi`（Google site:reddit.com） | `SERPAPI_API_KEY`（免费 250 次/月） | 仅全站关键词搜索（补 PullPush 宕机时的缺口） |
+| 5 | `jina`（r.jina.ai 渲染页） | 无 | 仅版块帖子列表，机会主义兜底（无分数，被封时干净失败） |
+
+- 存档后端（2–3）**无需任何鉴权**开箱即用；配好官方 OAuth 凭据后第 1 顺位自动生效、限制全消。
 - 每条结果仍带 `permalink`，可点开真实 Reddit 原帖人工查看/回复。
-- 取舍：两个存档都强在搜索与挖掘（按版块、关键词、作者、时间窗），但**没有 `hot`/`rising` 实时排序**（按时间或分数近似），评论为**扁平列表**（无嵌套回复树），且为近实时存档，新帖可能延迟数分钟。
-- Arctic 限制：**不支持全站跨版搜索**（必须指定 subreddit），因此 `search all` 仅在 PullPush 可用时工作；高赞排序为客户端在近期窗口内近似。
-- 可用 `REDDIT_RO_BACKEND=auto|pullpush|arctic` 强制指定后端（默认 `auto` 自动切换）。
+- 存档取舍：无 `hot`/`rising` 实时排序（按时间或分数近似）、评论为扁平列表、新帖可能延迟数分钟。
+- 可用 `REDDIT_RO_BACKEND=auto|reddit|pullpush|arctic|serpapi|jina` 强制指定后端（默认 `auto`）。
 - 合规：仅用于低频、人工驱动的只读浏览。请勿用于大规模自动化挖取以喂商业管线或训练 AI 模型——无论数据源为何，均违反 Reddit Responsible Builder Policy。
 
 ### 说明
@@ -229,17 +236,17 @@ Reddit 已于 2026 年 5 月停用匿名 `.json` 端点，数据中心 IP 直连
 
 ```bash
 # Codex
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.1/install.sh | bash -s -- --target codex --ref v1.2.1
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target codex --ref v1.3.0
 ```
 
 ```bash
 # OpenClaw
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.1/install.sh | bash -s -- --target openclaw --ref v1.2.1
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target openclaw --ref v1.3.0
 ```
 
 ```bash
 # OpenClaw workspace-local skills/
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.1/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.2.1
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.3.0
 ```
 
 Copy, run, then restart Codex / OpenClaw.
@@ -317,7 +324,7 @@ curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main
 Pin to a tag or version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.2.1/install.sh | bash -s -- --target codex --ref v1.2.1
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target codex --ref v1.3.0
 ```
 
 ### Recommended Workflow
@@ -360,13 +367,20 @@ If you need a commercial license, contact the author separately.
 
 ### Data Backend (Important)
 
-Reddit deprecated its anonymous `.json` endpoints in May 2026; datacenter IPs now get HTTP 403 on direct calls. The bundled `reddit-readonly` subskill reads through free, no-auth Pushshift-successor archives, and as of v1.2.1 has **dual-source automatic failover**: **[PullPush.io](https://pullpush.io)** first, falling back to **Arctic Shift** (arctic-shift.photon-reddit.com) whenever PullPush is down or overloaded (e.g. 502). `data.source` in each response reports which backend served.
+Reddit deprecated its anonymous `.json` endpoints in May 2026; datacenter IPs now get HTTP 403 on direct calls. As of v1.3.0 the bundled `reddit-readonly` subskill reads through a **5-backend automatic failover chain**; `data.source` in each response reports which backend served.
 
-- **No** Reddit API key, OAuth, login, or bot account required — works out of the box.
+| # | Backend | Needs | Covers |
+|---|---|---|---|
+| 1 | `reddit` (official OAuth) | `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` (optional username/password) | Everything, full fidelity: real hot/rising, live scores, nested comment tree |
+| 2 | `pullpush` (PullPush.io) | nothing | Everything incl. all-Reddit search |
+| 3 | `arctic` (Arctic Shift) | nothing | Everything except all-Reddit search (subreddit required); score sort approximated |
+| 4 | `serpapi` (Google `site:reddit.com`) | `SERPAPI_API_KEY` (free 250/mo) | Only all-Reddit keyword search — fills the gap when PullPush is down |
+| 5 | `jina` (r.jina.ai rendered page) | nothing | Only subreddit post listings; opportunistic last resort, fails cleanly when blocked |
+
+- Archive backends (2–3) need **no** API key, OAuth, login, or bot account — works out of the box; adding official OAuth creds upgrades to full fidelity automatically.
 - Every result still carries a `permalink` back to the real Reddit thread for manual review/reply.
-- Trade-offs: both archives are strong at search/mining (by subreddit, keyword, author, time window) but have **no `hot`/`rising` ranking** (approximated by recency or score), return comments as a **flat list** (no nested reply tree), and are near-real-time so brand-new posts may lag by minutes.
-- Arctic limits: **no all-Reddit keyword search** (a subreddit is required — `search all` only works while PullPush is up); score sorting is approximated client-side over a recent window.
-- `REDDIT_RO_BACKEND=auto|pullpush|arctic` forces a specific backend (default `auto`).
+- Archive trade-offs: **no `hot`/`rising` ranking** (approximated by recency or score), comments as a **flat list**, and near-real-time lag of minutes for brand-new posts.
+- `REDDIT_RO_BACKEND=auto|reddit|pullpush|arctic|serpapi|jina` forces a specific backend (default `auto`).
 - Compliance: use for low-volume, human-driven reading only. Do not use for large-scale automated mining that feeds a commercial pipeline or trains AI models — that violates Reddit's Responsible Builder Policy regardless of data source.
 
 ### Note

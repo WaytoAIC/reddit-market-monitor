@@ -6,14 +6,23 @@
  * Read-only Reddit CLI.
  *
  * Backend (2026): Reddit deprecated anonymous .json endpoints (datacenter IPs
- * get HTTP 403). This tool reads through free, no-auth Pushshift-successor
- * archives with AUTOMATIC FAILOVER: PullPush.io first, then Arctic Shift
- * (arctic-shift.photon-reddit.com) when PullPush is down. Every result still
- * carries a permalink so you open the real Reddit thread to reply manually.
+ * get HTTP 403). Reads go through a 5-backend AUTOMATIC FAILOVER chain:
  *
- * REDDIT_RO_BACKEND: auto (default) | pullpush | arctic.
- * Arctic notes: no all-Reddit keyword search (needs a subreddit); score sort
- * is approximated client-side over a recent window.
+ *   1. reddit   — official OAuth API (only when REDDIT_CLIENT_ID/SECRET set;
+ *                 optional REDDIT_USERNAME/PASSWORD for password grant).
+ *                 Full fidelity: real hot/rising, live scores, nested-tree
+ *                 comments (flattened with true depth).
+ *   2. pullpush — PullPush.io, free no-auth Pushshift successor.
+ *   3. arctic   — Arctic Shift, same family; no all-Reddit search
+ *                 (subreddit required), score sort approximated client-side.
+ *   4. serpapi  — Google `site:reddit.com` via SerpApi; ONLY fills the
+ *                 all-Reddit keyword search gap (needs SERPAPI_API_KEY).
+ *   5. jina     — r.jina.ai rendered-page parse; ONLY subreddit post
+ *                 listings, last resort (scores unavailable).
+ *
+ * data.source reports which backend served. REDDIT_RO_BACKEND forces one:
+ * auto (default) | reddit | pullpush | arctic | serpapi | jina.
+ * Every result carries a permalink to the real Reddit thread.
  *
  * Commands output JSON to stdout:
  * - Success: { ok: true, data: ... }
@@ -162,14 +171,30 @@ function timeToAfterEpoch(time) {
 // ---- Multi-backend read layer with automatic failover ----
 //
 // Canonical params: { subreddit, q, size, sort, sort_type, after, link_id, ids }
+// plus underscore-prefixed hints (_mode, _time) that only some backends use.
 // Backends tried in order; a 5xx/timeout/HTML/unusable response falls through
 // to the next. `lastServedBy` records which backend actually answered.
+//
+// Chain (auto): reddit-oauth (when creds set) -> pullpush -> arctic
+//               -> serpapi (global search only, when key set)
+//               -> jina (subreddit post listings only, last resort)
 
 let lastServedBy = null;
+
+const REDDIT_CREDS = {
+  clientId: process.env.REDDIT_CLIENT_ID || '',
+  clientSecret: process.env.REDDIT_CLIENT_SECRET || '',
+  username: process.env.REDDIT_USERNAME || '',
+  password: process.env.REDDIT_PASSWORD || '',
+};
+const HAS_REDDIT_CREDS = Boolean(REDDIT_CREDS.clientId && REDDIT_CREDS.clientSecret);
+const SERPAPI_KEY = process.env.REDDIT_RO_SERPAPI_KEY || process.env.SERPAPI_API_KEY || '';
+const JINA_BASE = 'https://r.jina.ai';
 
 function qsFrom(obj) {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(obj)) {
+    if (k.startsWith('_')) continue; // internal hints, never sent upstream
     if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
   }
   return qs.toString();
@@ -180,6 +205,182 @@ async function viaPullpush(kind, p) {
   const json = await fetchJsonWithRetry(url, { retries: 1 });
   if (!json || !Array.isArray(json.data)) throw new Error('pullpush: unexpected response shape');
   return json.data;
+}
+
+// ---- Official Reddit API via app-only / password OAuth ----
+
+let redditToken = null;
+
+async function redditGetToken() {
+  if (redditToken) return redditToken;
+  const body = REDDIT_CREDS.username && REDDIT_CREDS.password
+    ? `grant_type=password&username=${encodeURIComponent(REDDIT_CREDS.username)}&password=${encodeURIComponent(REDDIT_CREDS.password)}`
+    : 'grant_type=client_credentials';
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), DEFAULTS.timeoutMs);
+  try {
+    const res = await fetch('https://www.reddit.com/api/v1/access_token', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + Buffer.from(`${REDDIT_CREDS.clientId}:${REDDIT_CREDS.clientSecret}`).toString('base64'),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': DEFAULTS.userAgent,
+      },
+      body,
+      signal: controller.signal,
+    });
+    const json = await res.json();
+    if (!res.ok || !json.access_token) {
+      throw new Error(`reddit oauth token failed (HTTP ${res.status}): ${JSON.stringify(json).slice(0, 160)}`);
+    }
+    redditToken = json.access_token;
+    return redditToken;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function redditApi(pathWithQuery) {
+  const token = await redditGetToken();
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), DEFAULTS.timeoutMs);
+  try {
+    const res = await fetch(`https://oauth.reddit.com${pathWithQuery}`, {
+      headers: { 'Authorization': `bearer ${token}`, 'User-Agent': DEFAULTS.userAgent },
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`reddit api HTTP ${res.status}: ${text.slice(0, 160)}`);
+    return JSON.parse(text);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function listingChildren(listing, kindTag) {
+  return (listing && listing.data && Array.isArray(listing.data.children) ? listing.data.children : [])
+    .filter((c) => c && c.kind === kindTag)
+    .map((c) => c.data);
+}
+
+// Flatten the official API's nested comment tree into a flat array.
+function flattenRedditComments(children, depth = 0, out = []) {
+  for (const node of children || []) {
+    if (!node || node.kind !== 't1' || !node.data) continue;
+    const d = node.data;
+    out.push({ ...d, depth });
+    const replies = d.replies && d.replies.data && d.replies.data.children;
+    if (replies) flattenRedditComments(replies, depth + 1, out);
+  }
+  return out;
+}
+
+async function viaReddit(kind, p) {
+  if (!HAS_REDDIT_CREDS) throw new Error('reddit: REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET not set');
+  const size = parseInt(p.size, 10) || 25;
+  if (kind === 'submission') {
+    if (p.ids) {
+      const json = await redditApi(`/api/info?id=t3_${String(p.ids).replace(/^t3_/, '')}`);
+      return listingChildren(json, 't3');
+    }
+    if (p.q) {
+      const qp = qsFrom({ q: p.q, limit: size, sort: p._mode === 'top' ? 'top' : 'relevance', t: p._time || 'all', ...(p.subreddit ? { restrict_sr: 'on' } : {}) });
+      const path = p.subreddit ? `/r/${p.subreddit}/search?${qp}` : `/search?${qp}`;
+      return listingChildren(await redditApi(path), 't3');
+    }
+    const mode = ['hot', 'new', 'top', 'controversial', 'rising'].includes(p._mode) ? p._mode : 'new';
+    const qp = qsFrom({ limit: size, ...(mode === 'top' || mode === 'controversial' ? { t: p._time || 'all' } : {}) });
+    return listingChildren(await redditApi(`/r/${p.subreddit}/${mode}?${qp}`), 't3');
+  }
+  // comments
+  if (p.link_id) {
+    const json = await redditApi(`/comments/${String(p.link_id).replace(/^t3_/, '')}?limit=${size}`);
+    const commentListing = Array.isArray(json) ? json[1] : null;
+    return flattenRedditComments(commentListing && commentListing.data && commentListing.data.children);
+  }
+  return listingChildren(await redditApi(`/r/${p.subreddit}/comments?limit=${size}`), 't1');
+}
+
+// ---- SerpApi (Google site:reddit.com) — fills the global-search gap ----
+
+async function viaSerpapi(kind, p) {
+  if (kind !== 'submission' || !p.q || p.subreddit) {
+    throw new Error('serpapi: only handles all-Reddit keyword search');
+  }
+  if (!SERPAPI_KEY) throw new Error('serpapi: SERPAPI_API_KEY not set');
+  const num = Math.min(20, parseInt(p.size, 10) || 10);
+  const url = `https://serpapi.com/search.json?${qsFrom({ engine: 'google', q: `site:reddit.com ${p.q}`, num, api_key: SERPAPI_KEY })}`;
+  const json = await fetchJsonWithRetry(url, { retries: 1 });
+  if (json.error) throw new Error(`serpapi: ${String(json.error).slice(0, 120)}`);
+  const rows = [];
+  for (const r of json.organic_results || []) {
+    const m = String(r.link || '').match(/reddit\.com\/r\/([^/]+)\/comments\/([a-z0-9]+)/i);
+    if (!m) continue;
+    rows.push({
+      id: m[2],
+      subreddit: m[1],
+      title: String(r.title || '').replace(/\s*:\s*r\/\w+.*$/, ''),
+      author: null,
+      score: null,
+      num_comments: null,
+      created_utc: 0,
+      permalink: r.link,
+      url: r.link,
+      is_self: null,
+      over_18: null,
+      selftext: r.snippet || '',
+    });
+  }
+  return rows;
+}
+
+// ---- Jina Reader — last-resort subreddit post listing via rendered markdown ----
+
+async function viaJina(kind, p) {
+  if (kind !== 'submission' || !p.subreddit || p.q || p.ids || p.link_id) {
+    throw new Error('jina: only handles subreddit post listings');
+  }
+  const mode = ['hot', 'new', 'top', 'rising'].includes(p._mode) ? p._mode : 'new';
+  const url = `${JINA_BASE}/https://www.reddit.com/r/${p.subreddit}/${mode}/`;
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), DEFAULTS.timeoutMs);
+  let text;
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': DEFAULTS.userAgent }, signal: controller.signal });
+    text = await res.text();
+    if (!res.ok) throw new Error(`jina HTTP ${res.status}`);
+  } finally {
+    clearTimeout(t);
+  }
+  if (/blocked by network security|error 403/i.test(text)) {
+    throw new Error('jina: upstream reddit returned 403 through Jina');
+  }
+  const seen = new Set();
+  const rows = [];
+  const re = /\[([^\]]{5,200})\]\(https:\/\/www\.reddit\.com\/r\/([^/]+)\/comments\/([a-z0-9]+)[^)]*\)/gi;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const id = m[3];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    rows.push({
+      id,
+      subreddit: m[2],
+      title: m[1].trim(),
+      author: null,
+      score: null,
+      num_comments: null,
+      created_utc: 0,
+      permalink: `https://www.reddit.com/r/${m[2]}/comments/${id}/`,
+      url: `https://www.reddit.com/r/${m[2]}/comments/${id}/`,
+      is_self: null,
+      over_18: null,
+      selftext: '',
+    });
+    if (rows.length >= (parseInt(p.size, 10) || 25)) break;
+  }
+  if (rows.length === 0) throw new Error('jina: no posts parsed from rendered page');
+  return rows;
 }
 
 async function viaArctic(kind, p) {
@@ -216,28 +417,40 @@ async function viaArctic(kind, p) {
   return rows;
 }
 
-const BACKENDS = [
-  { name: 'pullpush', fn: viaPullpush },
-  { name: 'arctic', fn: viaArctic },
-];
+const BACKENDS = {
+  reddit: viaReddit,
+  pullpush: viaPullpush,
+  arctic: viaArctic,
+  serpapi: viaSerpapi,
+  jina: viaJina,
+};
+
+function buildChain(kind, p) {
+  const chain = [];
+  if (HAS_REDDIT_CREDS) chain.push('reddit');
+  chain.push('pullpush', 'arctic');
+  const isGlobalSearch = kind === 'submission' && p.q && !p.subreddit;
+  if (isGlobalSearch && SERPAPI_KEY) chain.push('serpapi');
+  const isSubListing = kind === 'submission' && p.subreddit && !p.q && !p.ids && !p.link_id;
+  if (isSubListing) chain.push('jina');
+  return chain;
+}
 
 // kind: 'submission' | 'comment'
 async function pullpush(kind, params) {
   const forced = BACKEND === 'auto' ? null : BACKEND;
-  const chain = forced
-    ? BACKENDS.filter((b) => b.name === forced)
-    : BACKENDS;
-  if (forced && chain.length === 0) {
-    throw new Error(`Unknown backend "${forced}". Use pullpush | arctic | auto.`);
+  const chain = forced ? [forced] : buildChain(kind, params);
+  if (forced && !BACKENDS[forced]) {
+    throw new Error(`Unknown backend "${forced}". Use auto | reddit | pullpush | arctic | serpapi | jina.`);
   }
   const errors = [];
-  for (const b of chain) {
+  for (const name of chain) {
     try {
-      const rows = await b.fn(kind, params);
-      lastServedBy = b.name;
+      const rows = await BACKENDS[name](kind, params);
+      lastServedBy = name;
       return rows;
     } catch (e) {
-      errors.push(`${b.name}: ${String(e && e.message ? e.message : e).slice(0, 160)}`);
+      errors.push(`${name}: ${String(e && e.message ? e.message : e).slice(0, 160)}`);
     }
   }
   throw new Error(`All backends failed — ${errors.join(' | ')}`);
@@ -355,6 +568,8 @@ async function cmdPosts(subreddit, args) {
     sort: 'desc',
     sort_type: byScore ? 'score' : 'created_utc',
     after,
+    _mode: sort,
+    _time: time,
   });
 
   const posts = rows.map(normalisePost);
@@ -387,6 +602,8 @@ async function cmdSearch(scope, query, args) {
     sort: 'desc',
     sort_type: sortType,
     after,
+    _mode: sort,
+    _time: time,
   });
 
   const posts = rows.map(normalisePost);
@@ -557,13 +774,13 @@ function usage() {
     '  thread <post_id|url> [--commentLimit N] [--includeDeleted true|false] [--maxChars N]',
     '  find --subreddits "a,b" [--query "..."] [--include "k1,k2"] [--exclude "k3"] [--minScore N] [--maxAgeHours H] [--perSubredditLimit N] [--maxResults N] [--rank new|score|comments|match]',
     '',
-    'Note: reads via PullPush.io (free, no-auth Pushshift successor). Every result carries a permalink to the real Reddit thread.',
+    'Backends (auto failover): reddit-oauth (if REDDIT_CLIENT_ID/SECRET set) -> pullpush -> arctic -> serpapi (global search, if SERPAPI_API_KEY) -> jina (post listings). data.source reports which served.',
   ].join('\n');
 }
 
 async function main() {
-  if (!['auto', 'pullpush', 'arctic'].includes(BACKEND)) {
-    fail(`Backend "${BACKEND}" is not implemented. Use auto (default, pullpush->arctic failover), pullpush, or arctic. The legacy reddit path needs OAuth/residential IP and is not built in.`);
+  if (!['auto', 'reddit', 'pullpush', 'arctic', 'serpapi', 'jina'].includes(BACKEND)) {
+    fail(`Backend "${BACKEND}" is not implemented. Use auto (default failover chain), reddit (needs REDDIT_CLIENT_ID/SECRET), pullpush, arctic, serpapi (global search, needs SERPAPI_API_KEY), or jina (post listings).`);
     return;
   }
 

@@ -14,22 +14,27 @@ Read-only Reddit browsing for Clawdbot.
 ## Backend (2026)
 
 Reddit deprecated anonymous `.json` endpoints in May 2026 — datacenter IPs get
-HTTP 403. This skill reads through free, no-auth Pushshift-successor archives
-with **automatic failover**: **PullPush.io** first, then **Arctic Shift**
-(`arctic-shift.photon-reddit.com`) whenever PullPush is down or overloaded.
-**No API key, OAuth, login, or bot account is required.** Every result still
-carries a `permalink` to the real Reddit thread so the user opens it to reply
-manually. `data.source` in each response reports which backend actually served
-(`pullpush` or `arctic`). `REDDIT_RO_BACKEND=auto|pullpush|arctic` forces a
-specific backend (default `auto`).
+HTTP 403. Reads go through a **5-backend automatic failover chain**; no setup
+is required for the archive backends, and optional credentials unlock more:
 
-Trade-offs vs the official API: these archives are strong at *search/mining*
-(by subreddit, keyword, author, time window) but have **no "hot"/"rising"
-ranking** (posts are approximated by recency or score) and return comments as
-a **flat list** (no nested reply tree). Arctic-specific limits: no all-Reddit
-keyword search (a subreddit is required — so `search all` only works while
-PullPush is up), and score-sorting is approximated client-side over a recent
-window. Near-real-time archives: brand-new posts may lag by minutes.
+| # | Backend | Needs | Covers |
+|---|---|---|---|
+| 1 | `reddit` (official OAuth) | `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` (optional `REDDIT_USERNAME`/`REDDIT_PASSWORD`) | Everything, full fidelity: real hot/rising, live scores, nested comments (flattened with true depth) |
+| 2 | `pullpush` (PullPush.io) | nothing | Everything incl. all-Reddit search |
+| 3 | `arctic` (Arctic Shift) | nothing | Everything except all-Reddit search (subreddit required); score sort approximated client-side |
+| 4 | `serpapi` (Google `site:reddit.com`) | `SERPAPI_API_KEY` | Only all-Reddit keyword search (fills the gap when PullPush is down) |
+| 5 | `jina` (r.jina.ai rendered page) | nothing | Only subreddit post listings, opportunistic last resort (no scores; fails cleanly when Reddit blocks Jina) |
+
+`data.source` in each response reports which backend actually served.
+`REDDIT_RO_BACKEND=auto|reddit|pullpush|arctic|serpapi|jina` forces one
+(default `auto`). Every result carries a `permalink` to the real Reddit thread
+so the user opens it to reply manually.
+
+Archive trade-offs (backends 2–3): strong at *search/mining* (by subreddit,
+keyword, author, time window) but **no "hot"/"rising" ranking** (approximated
+by recency or score) and comments come back as a **flat list**. Near-real-time:
+brand-new posts may lag by minutes. The official OAuth backend has none of
+these limits — set the two env vars once you have a Reddit script app.
 
 ## What this skill is for
 

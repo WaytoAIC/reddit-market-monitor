@@ -6,6 +6,20 @@ The format is intentionally simple and optimized for release notes and repositor
 
 ## [Unreleased]
 
+## [v1.3.0] - 2026-07-29
+
+### Added
+
+- **5-backend failover chain for `reddit-readonly`** (was 2). New backends:
+  - `reddit` — official Reddit OAuth API (app-only `client_credentials`, or password grant). Activates automatically when `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET` are set and takes first priority: real `hot`/`rising`, live scores, nested comment tree (flattened with true depth).
+  - `serpapi` — Google `site:reddit.com` search via SerpApi (`SERPAPI_API_KEY`). Only serves all-Reddit keyword search, filling the gap when PullPush is down (Arctic cannot search globally).
+  - `jina` — r.jina.ai rendered-page parsing. Only serves subreddit post listings as an opportunistic last resort; fails cleanly when Reddit blocks Jina's IPs.
+- `REDDIT_RO_BACKEND` now accepts `auto|reddit|pullpush|arctic|serpapi|jina`.
+
+### Notes
+
+- Probed and rejected as backends: Reddit RSS (403, same-domain block), redlib public instances (anti-bot JS walls), headless-Chrome rendering (reCAPTCHA interaction gate — not automatable).
+
 ## [v1.2.1] - 2026-07-29
 
 ### Added
