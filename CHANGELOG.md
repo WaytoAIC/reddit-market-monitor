@@ -6,6 +6,17 @@ The format is intentionally simple and optimized for release notes and repositor
 
 ## [Unreleased]
 
+## [v1.2.1] - 2026-07-29
+
+### Added
+
+- **Dual-source automatic failover for `reddit-readonly`.** PullPush.io remains the primary backend; when it is down or overloaded (e.g. Cloudflare 502) requests automatically fall back to **Arctic Shift** (`arctic-shift.photon-reddit.com`), another free, no-auth Pushshift successor. `data.source` in every response now reports which backend actually served.
+- `REDDIT_RO_BACKEND=auto|pullpush|arctic` to force a backend (default `auto`).
+
+### Notes
+
+- Arctic Shift cannot search across all of Reddit (a subreddit is required), so `search all` only works while PullPush is up; score sorting on Arctic is approximated client-side over a recent window.
+
 ## [v1.2.0] - 2026-07-01
 
 ### Added

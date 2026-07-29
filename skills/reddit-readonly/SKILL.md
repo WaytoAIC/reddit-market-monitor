@@ -14,17 +14,22 @@ Read-only Reddit browsing for Clawdbot.
 ## Backend (2026)
 
 Reddit deprecated anonymous `.json` endpoints in May 2026 — datacenter IPs get
-HTTP 403. This skill now reads through **PullPush.io**, a free, no-auth
-Pushshift-successor archive that mirrors Reddit's data model. **No API key,
-OAuth, login, or bot account is required.** Every result still carries a
-`permalink` to the real Reddit thread so the user opens it to reply manually.
+HTTP 403. This skill reads through free, no-auth Pushshift-successor archives
+with **automatic failover**: **PullPush.io** first, then **Arctic Shift**
+(`arctic-shift.photon-reddit.com`) whenever PullPush is down or overloaded.
+**No API key, OAuth, login, or bot account is required.** Every result still
+carries a `permalink` to the real Reddit thread so the user opens it to reply
+manually. `data.source` in each response reports which backend actually served
+(`pullpush` or `arctic`). `REDDIT_RO_BACKEND=auto|pullpush|arctic` forces a
+specific backend (default `auto`).
 
-Trade-offs vs the official API: PullPush is strong at *search/mining* (by
-subreddit, keyword, author, time window) but has **no "hot"/"rising" ranking**
-(posts are approximated by recency or score) and returns comments as a **flat
-list** (no nested reply tree). This is the right tool for finding posts and
-building shortlists; it is a near-real-time archive, so brand-new posts may lag
-by minutes.
+Trade-offs vs the official API: these archives are strong at *search/mining*
+(by subreddit, keyword, author, time window) but have **no "hot"/"rising"
+ranking** (posts are approximated by recency or score) and return comments as
+a **flat list** (no nested reply tree). Arctic-specific limits: no all-Reddit
+keyword search (a subreddit is required — so `search all` only works while
+PullPush is up), and score-sorting is approximated client-side over a recent
+window. Near-real-time archives: brand-new posts may lag by minutes.
 
 ## What this skill is for
 

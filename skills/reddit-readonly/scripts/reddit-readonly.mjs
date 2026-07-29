@@ -6,12 +6,14 @@
  * Read-only Reddit CLI.
  *
  * Backend (2026): Reddit deprecated anonymous .json endpoints (datacenter IPs
- * get HTTP 403). This tool now reads through PullPush.io — a free, no-auth
- * Pushshift-successor archive that mirrors Reddit's data model. Every result
- * still carries a permalink so you open the real Reddit thread to reply manually.
+ * get HTTP 403). This tool reads through free, no-auth Pushshift-successor
+ * archives with AUTOMATIC FAILOVER: PullPush.io first, then Arctic Shift
+ * (arctic-shift.photon-reddit.com) when PullPush is down. Every result still
+ * carries a permalink so you open the real Reddit thread to reply manually.
  *
- * Set REDDIT_RO_BACKEND=reddit to force the legacy official-endpoint path
- * (only useful once you have OAuth / a residential IP).
+ * REDDIT_RO_BACKEND: auto (default) | pullpush | arctic.
+ * Arctic notes: no all-Reddit keyword search (needs a subreddit); score sort
+ * is approximated client-side over a recent window.
  *
  * Commands output JSON to stdout:
  * - Success: { ok: true, data: ... }
@@ -20,7 +22,8 @@
 
 const BASE_URL = 'https://www.reddit.com';
 const PULLPUSH_BASE = 'https://api.pullpush.io/reddit/search';
-const BACKEND = String(process.env.REDDIT_RO_BACKEND || 'pullpush').toLowerCase();
+const ARCTIC_BASE = 'https://arctic-shift.photon-reddit.com/api';
+const BACKEND = String(process.env.REDDIT_RO_BACKEND || 'auto').toLowerCase();
 
 const DEFAULTS = {
   minDelayMs: parseInt(process.env.REDDIT_RO_MIN_DELAY_MS || '500', 10),
@@ -156,15 +159,88 @@ function timeToAfterEpoch(time) {
   return Math.floor(nowMs() / 1000) - secs;
 }
 
-// kind: 'submission' | 'comment'
-async function pullpush(kind, params) {
+// ---- Multi-backend read layer with automatic failover ----
+//
+// Canonical params: { subreddit, q, size, sort, sort_type, after, link_id, ids }
+// Backends tried in order; a 5xx/timeout/HTML/unusable response falls through
+// to the next. `lastServedBy` records which backend actually answered.
+
+let lastServedBy = null;
+
+function qsFrom(obj) {
   const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
+  for (const [k, v] of Object.entries(obj)) {
     if (v !== undefined && v !== null && v !== '') qs.set(k, String(v));
   }
-  const url = `${PULLPUSH_BASE}/${kind}/?${qs.toString()}`;
-  const json = await fetchJsonWithRetry(url);
-  return Array.isArray(json && json.data) ? json.data : [];
+  return qs.toString();
+}
+
+async function viaPullpush(kind, p) {
+  const url = `${PULLPUSH_BASE}/${kind}/?${qsFrom(p)}`;
+  const json = await fetchJsonWithRetry(url, { retries: 1 });
+  if (!json || !Array.isArray(json.data)) throw new Error('pullpush: unexpected response shape');
+  return json.data;
+}
+
+async function viaArctic(kind, p) {
+  // Arctic Shift cannot search across all of Reddit — it requires subreddit or author.
+  if (p.q && !p.subreddit && !p.author && !p.link_id && !p.ids) {
+    throw new Error('arctic: global (all-Reddit) keyword search unsupported; needs a subreddit');
+  }
+  let url;
+  if (kind === 'submission' && p.ids) {
+    url = `${ARCTIC_BASE}/posts/ids?${qsFrom({ ids: p.ids })}`;
+  } else {
+    const path = kind === 'submission' ? 'posts/search' : 'comments/search';
+    const wantScoreSort = p.sort_type === 'score' || p.sort_type === 'num_comments';
+    const mapped = {
+      subreddit: p.subreddit,
+      query: p.q,
+      link_id: p.link_id,
+      after: p.after,
+      sort: p.sort || 'desc',
+      // Arctic sorts by time only; when score-sort was requested, over-fetch
+      // and re-rank client-side below (recency-biased approximation).
+      limit: wantScoreSort ? Math.min(100, (parseInt(p.size, 10) || 25) * 4) : p.size,
+    };
+    url = `${ARCTIC_BASE}/${path}?${qsFrom(mapped)}`;
+  }
+  const json = await fetchJsonWithRetry(url, { retries: 1 });
+  if (json && json.error) throw new Error(`arctic: ${json.error}`);
+  let rows = Array.isArray(json && json.data) ? json.data : [];
+  if (p.sort_type === 'score' || p.sort_type === 'num_comments') {
+    const key = p.sort_type;
+    rows = rows.slice().sort((a, b) => ((b && b[key]) || 0) - ((a && a[key]) || 0));
+    if (p.size) rows = rows.slice(0, parseInt(p.size, 10) || 25);
+  }
+  return rows;
+}
+
+const BACKENDS = [
+  { name: 'pullpush', fn: viaPullpush },
+  { name: 'arctic', fn: viaArctic },
+];
+
+// kind: 'submission' | 'comment'
+async function pullpush(kind, params) {
+  const forced = BACKEND === 'auto' ? null : BACKEND;
+  const chain = forced
+    ? BACKENDS.filter((b) => b.name === forced)
+    : BACKENDS;
+  if (forced && chain.length === 0) {
+    throw new Error(`Unknown backend "${forced}". Use pullpush | arctic | auto.`);
+  }
+  const errors = [];
+  for (const b of chain) {
+    try {
+      const rows = await b.fn(kind, params);
+      lastServedBy = b.name;
+      return rows;
+    } catch (e) {
+      errors.push(`${b.name}: ${String(e && e.message ? e.message : e).slice(0, 160)}`);
+    }
+  }
+  throw new Error(`All backends failed — ${errors.join(' | ')}`);
 }
 
 function buildUrl(pathWithQuery) {
@@ -284,7 +360,7 @@ async function cmdPosts(subreddit, args) {
   const posts = rows.map(normalisePost);
 
   ok({
-    source: 'pullpush',
+    source: lastServedBy,
     subreddit,
     sort,
     ranking_note: byScore
@@ -316,7 +392,7 @@ async function cmdSearch(scope, query, args) {
   const posts = rows.map(normalisePost);
 
   ok({
-    source: 'pullpush',
+    source: lastServedBy,
     scope,
     query,
     sort,
@@ -340,7 +416,7 @@ async function cmdRecentComments(subreddit, args) {
 
   const comments = rows.map((c) => normaliseComment(c, { maxChars }));
 
-  ok({ source: 'pullpush', subreddit, limit, comments });
+  ok({ source: lastServedBy, subreddit, limit, comments });
 }
 
 async function cmdComments(postIdOrUrl, args) {
@@ -363,7 +439,7 @@ async function cmdComments(postIdOrUrl, args) {
   if (!includeDeleted) comments = comments.filter((c) => !isDeletedComment(c));
 
   ok({
-    source: 'pullpush',
+    source: lastServedBy,
     post_id: postId,
     limit,
     include_deleted: includeDeleted,
@@ -394,7 +470,7 @@ async function cmdThread(postIdOrUrl, args) {
   if (!includeDeleted) comments = comments.filter((c) => !isDeletedComment(c));
 
   ok({
-    source: 'pullpush',
+    source: lastServedBy,
     post,
     tree_note: 'flat comment list (PullPush)',
     comments,
@@ -464,7 +540,7 @@ async function cmdFind(args) {
   });
 
   ok({
-    source: 'pullpush',
+    source: lastServedBy,
     criteria: { subreddits, query: query || null, include, exclude, minScore, maxAgeHours, perSubredditLimit, maxResults, rank },
     meta: { fetched_per_subreddit: perSub, candidates: collected.length, returned: Math.min(maxResults, ranked.length) },
     results: ranked.slice(0, maxResults),
@@ -486,8 +562,8 @@ function usage() {
 }
 
 async function main() {
-  if (BACKEND !== 'pullpush') {
-    fail(`Backend "${BACKEND}" is not implemented in this build. Only the PullPush backend is active. Unset REDDIT_RO_BACKEND to use it.`);
+  if (!['auto', 'pullpush', 'arctic'].includes(BACKEND)) {
+    fail(`Backend "${BACKEND}" is not implemented. Use auto (default, pullpush->arctic failover), pullpush, or arctic. The legacy reddit path needs OAuth/residential IP and is not built in.`);
     return;
   }
 
