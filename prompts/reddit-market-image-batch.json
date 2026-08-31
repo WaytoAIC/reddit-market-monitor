@@ -1,0 +1,32 @@
+{
+  "jobs": 2,
+  "tasks": [
+    {
+      "id": "cover",
+      "promptFiles": ["reddit-market-cover.md"],
+      "image": "../imgs/reddit-market-cover.png",
+      "provider": "google",
+      "model": "nano-banana-fast",
+      "ar": "16:9",
+      "quality": "normal"
+    },
+    {
+      "id": "signal-map",
+      "promptFiles": ["reddit-market-signal-map.md"],
+      "image": "../imgs/reddit-market-signal-map.png",
+      "provider": "google",
+      "model": "nano-banana-fast",
+      "ar": "16:9",
+      "quality": "normal"
+    },
+    {
+      "id": "workflow",
+      "promptFiles": ["reddit-market-workflow.md"],
+      "image": "../imgs/reddit-market-workflow.png",
+      "provider": "google",
+      "model": "nano-banana-fast",
+      "ar": "16:9",
+      "quality": "normal"
+    }
+  ]
+}
