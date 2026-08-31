@@ -6,6 +6,56 @@ The format is intentionally simple and optimized for release notes and repositor
 
 ## [Unreleased]
 
+### Added
+
+- `reddit-readonly`: **Reddit RSS backend** — Reddit still serves its own Atom feeds to
+  feed-reader user agents, giving real hot/new/top ranking plus all-Reddit search with
+  zero configuration. (The earlier "RSS is blocked" finding was a user-agent problem,
+  not a blocked endpoint.)
+- `reddit-readonly`: **TikHub backend** (opt-in, needs `TIKHUB_API_KEY`, billed per
+  request) — the only source providing ranking, scores and nested reply trees at once
+- `reddit-readonly`: `doctor` subcommand — probes every backend for real and prints a
+  capability/freshness matrix; unprobed backends are reported as `not_configured`,
+  never counted as passing
+- `reddit-readonly`: **freshness gate** — a backend answering HTTP 200 with long-stale
+  data no longer passes silently; the router moves on, and degraded results carry a
+  `warnings` entry
+- `reddit-readonly`: response envelope now reports `backend_trail`, `freshness`,
+  `warnings` and `cost.tikhub_requests`
+- `reddit-readonly`: `--nested`, `--wantScore`, `--loose` and `--tikhub-max-pages` flags
+
+### Changed
+
+- `reddit-readonly`: backends are now **routed by capability** instead of a fixed
+  failover chain — the live backends have non-overlapping strengths (real ranking /
+  deep archive / scores + nesting), so the best first choice depends on the query
+- `reddit-readonly`: multi-word searches are **phrase-matched by default**. Reddit ORs
+  bare words, so an unquoted query such as `non slip bath mat` can also match posts
+  that only mention "mat". Pass `--loose` for the old behaviour
+- `reddit-readonly`: credentials are read only from the process environment and a `.env`
+  next to the skill — no other files are touched
+
+### Removed
+
+- `reddit-readonly`: **PullPush backend** — its archive froze on 2025-05-19 and it now
+  answers agents with `429 This website does not provide free scraping resources`.
+  Arctic Shift covers the same range (2019 → today), so nothing was lost
+- `reddit-readonly`: **Jina backend** — returns HTTP 200 wrapping Reddit's own block
+  page, i.e. a false positive rather than a working fallback
+
+### Fixed
+
+- `reddit-readonly`: results are no longer silently served from a stale backend. The
+  failover test was "did it throw?", so a backend returning 200 with 15-month-old rows
+  counted as success — `search all` answered with 2025 posts and `thread` returned an
+  empty comment list, both reported as `ok: true`
+- `reddit-readonly`: transient transport failures (`fetch failed` / `ECONNRESET`, and
+  Arctic Shift's `HTTP 422 "slow down"`) are now retried instead of marking a healthy
+  backend dead. Measured availability went from ~65% to 100% over 10 consecutive runs
+- `reddit-readonly`: TikHub searches are no longer re-ranked by date when the caller
+  asked for relevance
+- `reddit-readonly`: subreddit arguments accept a full URL, `r/name` or a bare name
+
 ## [v1.3.0] - 2026-07-29
 
 ### Added

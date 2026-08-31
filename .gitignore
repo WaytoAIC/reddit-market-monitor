@@ -7,3 +7,11 @@
 config.local.yaml
 archives/generated/
 reports/generated/
+
+# Per-user runtime output. Task configs and generated reports belong to whoever
+# runs the skill, not to the skill itself; scraped Reddit content additionally
+# carries usernames that should not be republished from a public repository.
+configs/
+reports/*.md
+reports/*.html
+current_work_codex_dashboard.html
