@@ -72,17 +72,17 @@
 
 ```bash
 # Codex
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target codex --ref v1.3.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.4.0/install.sh | bash -s -- --target codex --ref v1.4.0
 ```
 
 ```bash
 # OpenClaw
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target openclaw --ref v1.3.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.4.0/install.sh | bash -s -- --target openclaw --ref v1.4.0
 ```
 
 ```bash
 # OpenClaw workspace-local skills/
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.3.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.4.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.4.0
 ```
 
 复制即用。安装后重启 Codex / OpenClaw。
@@ -118,7 +118,7 @@ curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3
 - 完整执行规则：[skills.md](./skills.md)
 - 默认配置与 schema：[config.yaml](./config.yaml)
 - 新手配置模板：[templates/monitor_task_config.template.yaml](./templates/monitor_task_config.template.yaml)
-- 表格版日报示例：[reports/2026-03-20_reddit_daily_table_example.md](./reports/2026-03-20_reddit_daily_table_example.md)
+- 日报与原声存档：运行时写到 `reports/`、`archives/`，属于使用者自己的数据，不进仓库
 - 内置 Reddit 只读子技能：[skills/reddit-readonly](./skills/reddit-readonly)
 
 ### 主要特点
@@ -164,7 +164,7 @@ curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main
 固定到某个 tag 或版本:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target codex --ref v1.3.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.4.0/install.sh | bash -s -- --target codex --ref v1.4.0
 ```
 
 ### 推荐使用方式
@@ -199,8 +199,8 @@ curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3
 ├── skills.md
 ├── config.yaml
 ├── templates/
-├── reports/
-├── archives/
+├── reports/      # 运行时生成，不进仓库
+├── archives/     # 运行时生成，不进仓库
 └── skills/
     └── reddit-readonly/
 ```
@@ -236,17 +236,17 @@ Reddit 已于 2026 年 5 月停用匿名 `.json` 端点，数据中心 IP 直连
 
 ```bash
 # Codex
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target codex --ref v1.3.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.4.0/install.sh | bash -s -- --target codex --ref v1.4.0
 ```
 
 ```bash
 # OpenClaw
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target openclaw --ref v1.3.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.4.0/install.sh | bash -s -- --target openclaw --ref v1.4.0
 ```
 
 ```bash
 # OpenClaw workspace-local skills/
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.3.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.4.0/install.sh | bash -s -- --dest "$(pwd)/skills" --ref v1.4.0
 ```
 
 Copy, run, then restart Codex / OpenClaw.
@@ -278,7 +278,7 @@ It is not a repost bot. It turns Reddit discussions into:
 - Full execution rules: [skills.md](./skills.md)
 - Default config and schema: [config.yaml](./config.yaml)
 - Starter config template: [templates/monitor_task_config.template.yaml](./templates/monitor_task_config.template.yaml)
-- Table-first daily report example: [reports/2026-03-20_reddit_daily_table_example.md](./reports/2026-03-20_reddit_daily_table_example.md)
+- Daily reports and the user-voice archive are written to `reports/` and `archives/` at run time; they are your own data and are not tracked in the repo
 - Bundled read-only Reddit subskill: [skills/reddit-readonly](./skills/reddit-readonly)
 
 ### Key Features
@@ -324,7 +324,7 @@ curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/main
 Pin to a tag or version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.3.0/install.sh | bash -s -- --target codex --ref v1.3.0
+curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.4.0/install.sh | bash -s -- --target codex --ref v1.4.0
 ```
 
 ### Recommended Workflow
@@ -359,8 +359,8 @@ If you need a commercial license, contact the author separately.
 ├── skills.md
 ├── config.yaml
 ├── templates/
-├── reports/
-├── archives/
+├── reports/      # created at run time, not tracked
+├── archives/     # created at run time, not tracked
 └── skills/
     └── reddit-readonly/
 ```

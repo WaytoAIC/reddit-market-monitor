@@ -107,16 +107,16 @@
 
 ---
 
-## 5. 拿到后给 AI 什么（收尾）
+## 5. 拿到后怎么用（收尾）
 
-在 prefs/apps 拿到后，把这四样发我（都是**小号**凭据，不碰主号）：
+在 prefs/apps 拿到后，把这四样写进 `skills/reddit-readonly/` 目录下的 `.env`（都是**小号**凭据，不碰主号）。`.env` 已被 `.gitignore` 忽略，不要提交，也不要贴进 AI 对话：
 ```
-client_id     = （App 名字下面那串）
-client_secret = （secret 那行）
-bot_username  = （Bot 小号用户名）
-bot_password  = （Bot 小号密码）
+REDDIT_CLIENT_ID=（App 名字下面那串）
+REDDIT_CLIENT_SECRET=（secret 那行）
+REDDIT_USERNAME=（Bot 小号用户名）
+REDDIT_PASSWORD=（Bot 小号密码）
 ```
-我会：写进本地环境变量（不留档、不上传）→ 把 `reddit-readonly.mjs` 改成 OAuth 版（有凭据走 `oauth.reddit.com`，无凭据回退匿名模式）→ 当场跑通给你看。
+`reddit-readonly.mjs` 已内置 OAuth：有凭据就走 `oauth.reddit.com`，没有就用免配置的 RSS / Arctic Shift。
 
 ---
 

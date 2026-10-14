@@ -13,5 +13,6 @@ reports/generated/
 # carries usernames that should not be republished from a public repository.
 configs/
 reports/*.md
+archives/*.md
 reports/*.html
 current_work_codex_dashboard.html

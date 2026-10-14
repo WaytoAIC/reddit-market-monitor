@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is intentionally simple and optimized for release notes and repository readers.
 
-## [Unreleased]
+## [1.4.0] - 2026-10-14
 
 ### Added
 
@@ -42,6 +42,9 @@ The format is intentionally simple and optimized for release notes and repositor
   Arctic Shift covers the same range (2019 → today), so nothing was lost
 - `reddit-readonly`: **Jina backend** — returns HTTP 200 wrapping Reddit's own block
   page, i.e. a false positive rather than a working fallback
+- Sample daily reports under `reports/` and the user-voice archive under `archives/`
+  are no longer tracked in the repository. Both are run-time output that belongs to
+  whoever runs the skill; `archives/*.md` is now git-ignored alongside `reports/*.md`
 
 ### Fixed
 
