@@ -207,21 +207,24 @@ curl -fsSL https://raw.githubusercontent.com/WaytoAIC/reddit-market-monitor/v1.4
 
 ### 数据后端说明（重要）
 
-Reddit 已于 2026 年 5 月停用匿名 `.json` 端点，数据中心 IP 直连会返回 HTTP 403。内置 `reddit-readonly` 子技能自 v1.3.0 起采用 **5 后端自动故障切换链**，任一数据源宕机自动切换，`data.source` 字段标注实际数据源：
+Reddit 已于 2026 年 5 月停用匿名 `.json` 端点，数据中心 IP 直连会返回 HTTP 403。内置 `reddit-readonly` 子技能（v1.5.0）**按能力在 6 个后端间路由**——各后端强项互不重叠，按查询类型选第一顺位；某个后端报错或数据过旧（新鲜度闸门）就自动换下一个。`data.source` 标注实际答题的后端，`data.backend_trail` 标注走过的路。
 
-| 顺位 | 后端 | 需要什么 | 覆盖范围 |
+| 后端 | 需要什么 | 强项 | 局限 |
 |---|---|---|---|
-| 1 | `reddit`（官方 OAuth） | `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`（可选账号密码） | 全功能满血：真实 hot/rising、实时分数、嵌套评论树 |
-| 2 | `pullpush`（PullPush.io） | 无 | 全功能（含全站搜索） |
-| 3 | `arctic`（Arctic Shift） | 无 | 除全站搜索外全部（须指定版块）；高赞排序客户端近似 |
-| 4 | `serpapi`（Google site:reddit.com） | `SERPAPI_API_KEY`（免费 250 次/月） | 仅全站关键词搜索（补 PullPush 宕机时的缺口） |
-| 5 | `jina`（r.jina.ai 渲染页） | 无 | 仅版块帖子列表，机会主义兜底（无分数，被封时干净失败） |
+| `rss`（Reddit 官方 Atom） | 无 | 真实 hot/new/top 排序 + 全站搜索 | 每次 25 条；无分数；限流紧 |
+| `arctic`（Arctic Shift 存档） | 无 | 2019 至今、无限翻页、有分数 | 无真实排序；不能全站搜索 |
+| `sorftime`（Sorftime MCP） | `SORFTIME_KEY` | **稳定的全站语义搜索**；每帖带类型/情绪/产品/摘要标签；可按类型、情绪筛选；帖子全文；评论带点赞并能还原楼层 | 比 Reddit 晚数周；无版块列表与排序；搜索结果无标题（只有摘要）；按账户额度计 |
+| `tikhub`（第三方） | `TIKHUB_API_KEY`（按次付费） | 排序 + 分数 + 嵌套评论树 | 按次计费，每页约 8 条 |
+| `reddit`（官方 OAuth） | `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` | 全功能满血 | 需申请 Reddit 应用 |
+| `serpapi`（Google） | `SERPAPI_API_KEY` | 补充全站搜索 | 无分数、无时间 |
 
-- 存档后端（2–3）**无需任何鉴权**开箱即用；配好官方 OAuth 凭据后第 1 顺位自动生效、限制全消。
-- 每条结果仍带 `permalink`，可点开真实 Reddit 原帖人工查看/回复。
-- 存档取舍：无 `hot`/`rising` 实时排序（按时间或分数近似）、评论为扁平列表、新帖可能延迟数分钟。
-- 可用 `REDDIT_RO_BACKEND=auto|reddit|pullpush|arctic|serpapi|jina` 强制指定后端（默认 `auto`）。
-- 合规：仅用于低频、人工驱动的只读浏览。请勿用于大规模自动化挖取以喂商业管线或训练 AI 模型——无论数据源为何，均违反 Reddit Responsible Builder Policy。
+- **零配置可用**：`rss` + `arctic` 覆盖全部命令；其他 key 只加能力，不是必需。
+- 全站搜索的顺位：`sorftime` → `rss` → `tikhub` → `serpapi`（配了官方 OAuth 则官方在最前）。
+- `--postType` / `--sentiment` 只有 Sorftime 能做，没配 key 会直接报错，不会悄悄返回没筛过的结果。
+- Sorftime 的 `voc_tags.summary` 是 AI 写的摘要，**不是用户原话**；原声存档请用 `thread` 拉全文和评论。
+- 可用 `REDDIT_RO_BACKEND=auto|reddit|rss|arctic|tikhub|serpapi|sorftime` 强制指定后端（默认 `auto`）。
+- 先跑 `node skills/reddit-readonly/scripts/reddit-readonly.mjs doctor`，看哪些后端真的通。
+- 合规：Reddit Responsible Builder Policy 禁止把 Reddit 数据用于商业挖掘或训练 AI，无论经由哪个数据源；第三方源（Sorftime / TikHub）的合规责任由提供 key 的人承担。
 
 ### 说明
 
@@ -367,21 +370,24 @@ If you need a commercial license, contact the author separately.
 
 ### Data Backend (Important)
 
-Reddit deprecated its anonymous `.json` endpoints in May 2026; datacenter IPs now get HTTP 403 on direct calls. As of v1.3.0 the bundled `reddit-readonly` subskill reads through a **5-backend automatic failover chain**; `data.source` in each response reports which backend served.
+Reddit deprecated its anonymous `.json` endpoints in May 2026; datacenter IPs now get HTTP 403. The bundled `reddit-readonly` subskill (v1.5.0) **routes by capability across 6 backends** — their strengths do not overlap, so the first choice depends on the query; a backend that errors or returns stale data (freshness gate) hands over to the next. `data.source` names who answered, `data.backend_trail` the route taken.
 
-| # | Backend | Needs | Covers |
+| Backend | Needs | Strengths | Limits |
 |---|---|---|---|
-| 1 | `reddit` (official OAuth) | `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` (optional username/password) | Everything, full fidelity: real hot/rising, live scores, nested comment tree |
-| 2 | `pullpush` (PullPush.io) | nothing | Everything incl. all-Reddit search |
-| 3 | `arctic` (Arctic Shift) | nothing | Everything except all-Reddit search (subreddit required); score sort approximated |
-| 4 | `serpapi` (Google `site:reddit.com`) | `SERPAPI_API_KEY` (free 250/mo) | Only all-Reddit keyword search — fills the gap when PullPush is down |
-| 5 | `jina` (r.jina.ai rendered page) | nothing | Only subreddit post listings; opportunistic last resort, fails cleanly when blocked |
+| `rss` (Reddit's own Atom feeds) | nothing | real hot/new/top ranking + all-Reddit search | 25 items; no scores; tight rate limit |
+| `arctic` (Arctic Shift archive) | nothing | 2019 → today, unlimited paging, scores | no real ranking; no all-Reddit search |
+| `sorftime` (Sorftime MCP) | `SORFTIME_KEY` | **stable all-Reddit semantic search**; per-post type / sentiment / product / summary tags; filter by type and sentiment; full post text; comments with likes and a rebuilt reply tree | lags Reddit by weeks; no subreddit listings or ranking; search rows have no title (summary only); draws on account quota |
+| `tikhub` (third party) | `TIKHUB_API_KEY` (paid per request) | ranking + scores + nested reply trees | billed per request, ~8 rows/page |
+| `reddit` (official OAuth) | `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` | everything, full fidelity | needs a Reddit app |
+| `serpapi` (Google) | `SERPAPI_API_KEY` | extra all-Reddit search | no scores or timestamps |
 
-- Archive backends (2–3) need **no** API key, OAuth, login, or bot account — works out of the box; adding official OAuth creds upgrades to full fidelity automatically.
-- Every result still carries a `permalink` back to the real Reddit thread for manual review/reply.
-- Archive trade-offs: **no `hot`/`rising` ranking** (approximated by recency or score), comments as a **flat list**, and near-real-time lag of minutes for brand-new posts.
-- `REDDIT_RO_BACKEND=auto|reddit|pullpush|arctic|serpapi|jina` forces a specific backend (default `auto`).
-- Compliance: use for low-volume, human-driven reading only. Do not use for large-scale automated mining that feeds a commercial pipeline or trains AI models — that violates Reddit's Responsible Builder Policy regardless of data source.
+- **Zero config works**: `rss` + `arctic` cover every command; keys only add capabilities.
+- All-Reddit search order: `sorftime` → `rss` → `tikhub` → `serpapi` (the official API leads when configured).
+- `--postType` / `--sentiment` exist only on Sorftime; without the key the command fails loudly instead of returning unfiltered rows.
+- Sorftime's `voc_tags.summary` is AI-written, **not the user's words**; pull `thread` for quotable text.
+- `REDDIT_RO_BACKEND=auto|reddit|rss|arctic|tikhub|serpapi|sorftime` forces a backend (default `auto`).
+- Run `node skills/reddit-readonly/scripts/reddit-readonly.mjs doctor` first to see which backends actually answer.
+- Compliance: Reddit's Responsible Builder Policy forbids commercial mining or AI training on Reddit data regardless of source; compliance for third-party sources (Sorftime / TikHub) rests with whoever supplies the key.
 
 ### Note
 

@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 The format is intentionally simple and optimized for release notes and repository readers.
 
+## [1.5.0] - 2026-10-28
+
+### Added
+
+- `reddit-readonly`: **Sorftime backend** (opt-in, needs `SORFTIME_KEY`) — a stable
+  all-Reddit semantic search that does not rate-limit like the feed, so it now leads
+  all-Reddit search when keyed. Also serves full post text and comments with likes
+- `reddit-readonly`: search rows from Sorftime carry `voc_tags` — post type, main-post
+  sentiment, reply sentiment ratio, product mentioned and an AI summary (labelled as
+  such: it is not the poster's words)
+- `reddit-readonly`: `search --postType <types> --sentiment <positive|neutral|negative>`
+  filters, Sorftime only; without the key the command fails instead of returning
+  unfiltered rows
+- `reddit-readonly`: `--nested` falls back to a reply tree rebuilt from Sorftime parent
+  ids when TikHub is not configured
+- `reddit-readonly`: `cost.sorftime_requests` in responses; `--sorftime-max-pages`
+  (default 3); `doctor` probes Sorftime
+
+### Changed
+
+- Main skill docs (`SKILL.md`, `skills.md`, `config.yaml`, `README.md`) no longer describe
+  the PullPush backend removed in 1.4.0
+
+### Notes
+
+- Sorftime answers "no results" as plain text and does so intermittently for search;
+  the router records `sorftime:empty` and moves on to `rss`, so a Sorftime outage
+  degrades rather than breaks search
+- Sending an empty `post_type` or a zero `main_sentiment` makes Sorftime return no
+  results, so filters are only sent when set
+
 ## [1.4.0] - 2026-10-14
 
 ### Added

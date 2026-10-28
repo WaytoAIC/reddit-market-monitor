@@ -22,10 +22,14 @@
  *             fidelity, no RSS rate limit. Preferred when configured.
  *   serpapi — Google `site:reddit.com` (needs SERPAPI_API_KEY). Last-resort
  *             all-Reddit search only; rss/tikhub already cover this.
+ *   sorftime — Sorftime MCP (needs SORFTIME_KEY). Stable all-Reddit semantic
+ *             search with per-post tags (type / sentiment / product / summary),
+ *             full post text, and comments with likes + parent ids. Lags
+ *             Reddit by weeks, has no subreddit listings or ranking.
  *
  * data.source reports which backend served, data.backend_trail the route
  * taken, data.freshness how new the data actually is. REDDIT_RO_BACKEND
- * forces one: auto (default) | reddit | rss | arctic | tikhub | serpapi.
+ * forces one: auto (default) | reddit | rss | arctic | tikhub | serpapi | sorftime.
  * Every result carries a permalink to the real Reddit thread.
  *
  * Commands output JSON to stdout:
@@ -90,6 +94,8 @@ const DEFAULTS = {
   maxStaleDays: parseFloat(process.env.REDDIT_RO_MAX_STALE_DAYS || '7'),
   // Each TikHub page is a billed request; cap accidental fan-out.
   tikhubMaxPages: parseInt(process.env.REDDIT_RO_TIKHUB_MAX_PAGES || '3', 10),
+  // Sorftime returns 20 rows a page and every page draws on the account quota.
+  sorftimeMaxPages: parseInt(process.env.REDDIT_RO_SORFTIME_MAX_PAGES || '3', 10),
 };
 
 function nowMs() {
@@ -311,6 +317,7 @@ function timeToAfterEpoch(time) {
 let lastServedBy = null;
 let backendTrail = [];
 let tikhubRequests = 0;
+let sorftimeRequests = 0;
 // Accumulated, not overwritten: a fan-out issues one call per subreddit, and a
 // single warning slot would either hide the others or stick around after a
 // later call succeeded. Each entry names the query it came from.
@@ -329,6 +336,8 @@ const HAS_REDDIT_CREDS = Boolean(REDDIT_CREDS.clientId && REDDIT_CREDS.clientSec
 const SERPAPI_KEY = process.env.REDDIT_RO_SERPAPI_KEY || process.env.SERPAPI_API_KEY || '';
 const TIKHUB_KEY = process.env.TIKHUB_API_KEY || '';
 const HAS_TIKHUB = Boolean(TIKHUB_KEY);
+const SORFTIME_KEY = process.env.SORFTIME_KEY || '';
+const HAS_SORFTIME = Boolean(SORFTIME_KEY);
 
 function qsFrom(obj) {
   const qs = new URLSearchParams();
@@ -880,6 +889,223 @@ async function viaTikhub(kind, p) {
   return rows;
 }
 
+// ---- Sorftime — commercial MCP, opt-in (SORFTIME_KEY) ----
+//
+// Sorftime runs its own Reddit index behind an MCP server. What it adds that no
+// other backend has: a stable all-Reddit search that is semantic rather than
+// phrase-bound, and per-post tags already computed — post type, main-post
+// sentiment, reply sentiment ratio, the product mentioned and an English
+// summary. Post bodies come back in full and comments carry likes and parent
+// ids, so a reply tree can be rebuilt from them.
+//
+// What it lacks: subreddit listings and Reddit's own ranking, search rows have
+// no title (only the summary), dates are day-precision, and the index trails
+// Reddit by weeks — the freshness gate moves "latest" queries elsewhere.
+//
+// The server is stateless JSON-RPC over HTTP: one tools/call per request, no
+// session handshake needed. Every call draws on the account quota.
+
+const SORFTIME_MCP = process.env.REDDIT_RO_SORFTIME_URL || 'https://mcp.sorftime.com';
+// Codes 1-7 per the tool schema. Search results label the same buckets
+// problem / inquiry / complaint / experience_share / ..., so accept those too.
+const SORFTIME_POST_TYPES = {
+  question: 1, help: 1, problem: 1, advice: 2, purchase: 2, inquiry: 2, complaint: 3,
+  experience: 4, experience_share: 4, discussion: 5, innovation: 6, other: 7,
+};
+const SORFTIME_SENTIMENTS = { positive: 1, neutral: 2, negative: 3 };
+
+// Accept names or the raw numeric codes; reject anything else loudly rather than
+// silently dropping a filter the caller thinks is applied.
+function sorftimePostTypeParam(v) {
+  if (!v) return '';
+  return parseCommaList(v).map((t) => {
+    const k = String(t).toLowerCase();
+    if (/^[1-7]$/.test(k)) return k;
+    if (SORFTIME_POST_TYPES[k]) return String(SORFTIME_POST_TYPES[k]);
+    throw new Error(`--postType "${t}" unknown; use ${Object.keys(SORFTIME_POST_TYPES).join('|')} or 1-7`);
+  }).join(',');
+}
+
+function sorftimeSentimentParam(v) {
+  if (!v) return 0;
+  const k = String(v).toLowerCase();
+  if (/^[1-3]$/.test(k)) return Number(k);
+  if (SORFTIME_SENTIMENTS[k]) return SORFTIME_SENTIMENTS[k];
+  throw new Error(`--sentiment "${v}" unknown; use positive|neutral|negative`);
+}
+
+async function sorftimeCall(name, args) {
+  if (!HAS_SORFTIME) throw new Error('sorftime: SORFTIME_KEY not set');
+  for (let attempt = 0; ; attempt++) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), DEFAULTS.timeoutMs);
+    try {
+      sorftimeRequests++;
+      let res;
+      try {
+        res = await fetch(`${SORFTIME_MCP}?key=${encodeURIComponent(SORFTIME_KEY)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+          signal: controller.signal,
+        });
+      } catch (e) {
+        const code = e && e.cause && e.cause.code ? ` (${e.cause.code})` : '';
+        throw new Error(`${String(e && e.message ? e.message : e)}${code}`);
+      }
+      const text = await res.text();
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+      // Streamable-HTTP servers may answer as SSE; the JSON-RPC reply is the last data line.
+      const body = (res.headers.get('content-type') || '').includes('event-stream')
+        ? text.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).filter(Boolean).pop()
+        : text;
+      if (!body || !body.trim()) throw new Error('Upstream returned an empty body.');
+      const rpc = JSON.parse(body);
+      if (rpc.error) throw new Error(`sorftime: ${String(rpc.error.message || rpc.error.code).slice(0, 160)}`);
+      const out = (rpc.result && rpc.result.content && rpc.result.content[0] && rpc.result.content[0].text) || '';
+      if (rpc.result && rpc.result.isError) throw new Error(`sorftime: ${out.slice(0, 160)}`);
+      // "No data available." is a plain-text answer, not an error: zero rows.
+      if (!out.trim().startsWith('{') && !out.trim().startsWith('[')) return null;
+      return JSON.parse(out);
+    } catch (e) {
+      const msg = String(e && e.message ? e.message : e);
+      if (attempt >= 2 || !isRetryableError(msg)) throw e;
+      await sleep(600 * 2 ** attempt);
+    } finally {
+      clearTimeout(t);
+    }
+  }
+}
+
+// Sorftime gives "YYYY-MM-DD"; keep it as midnight UTC so freshness maths works.
+function sorftimeEpoch(v) {
+  const ms = Date.parse(String(v || '').length === 10 ? `${v}T00:00:00Z` : v);
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : 0;
+}
+
+const stripPrefix = (v, prefix) => String(v || '').replace(prefix, '');
+const stripSub = (v) => String(v || '').replace(/^\/?r\//i, '') || undefined;
+const pick = (o, ...keys) => {
+  for (const k of keys) if (o && o[k] !== undefined && o[k] !== null && o[k] !== '') return o[k];
+  return undefined;
+};
+
+// Search rows (snake_case) and post detail (PascalCase) come back in different
+// casings for the same fields; read either.
+function sorftimeToPost(r, { full = false } = {}) {
+  const id = stripPrefix(pick(r, 'reddit_id', 'RedditId'), /^t3_/);
+  if (!id) return null;
+  const summary = pick(r, 'summary', 'Summary');
+  const content = pick(r, 'content', 'Content');
+  return {
+    id,
+    name: `t3_${id}`,
+    subreddit: stripSub(pick(r, 'subreddit', 'Subreddit')),
+    title: pick(r, 'title', 'Title') || null,
+    author: pick(r, 'author', 'Author'),
+    score: pick(r, 'like_count', 'LikeCount') ?? null,
+    num_comments: pick(r, 'reply_count', 'ReplyCount') ?? null,
+    created_utc: sorftimeEpoch(pick(r, 'published_time', 'PublishedTime')),
+    permalink: pick(r, 'url', 'Url') || null,
+    url: pick(r, 'content_link', 'ContentLink') || null,
+    is_self: (pick(r, 'content_type', 'ContentType') || 'text') === 'text',
+    // Search rows only carry an AI summary; never pass that off as the post body.
+    selftext: full ? content : undefined,
+    voc_tags: summary || pick(r, 'post_type') ? {
+      post_type: pick(r, 'post_type') || null,
+      sentiment: pick(r, 'main_post_sentiment') || null,
+      reply_sentiment_ratio: pick(r, 'reply_sentiment_ratio') || null,
+      product: pick(r, 'product') || null,
+      summary: summary || null,
+      summary_source: 'sorftime (AI-written English summary, not the poster\'s words)',
+    } : undefined,
+  };
+}
+
+function sorftimeToComments(rows, postId) {
+  const linkId = `t3_${postId}`;
+  const list = rows.map((r) => ({
+    id: stripPrefix(r.comment_id, /^t1_/),
+    name: r.comment_id,
+    author: r.author,
+    body: r.content,
+    score: r.like_count ?? null,
+    created_utc: sorftimeEpoch(r.published_time),
+    // Empty parent means a top-level reply; point it at the post like Reddit does.
+    parent_id: r.parent_comment_id || linkId,
+    link_id: linkId,
+  }));
+  // Rebuild depth from the parent chain — the one thing that makes this a tree
+  // rather than a flat list.
+  const byName = new Map(list.map((c) => [c.name, c]));
+  for (const c of list) {
+    let depth = 0;
+    let cur = c;
+    while (cur && cur.parent_id && cur.parent_id !== linkId && depth < 50) {
+      cur = byName.get(cur.parent_id);
+      depth++;
+    }
+    c.depth = depth;
+  }
+  return list;
+}
+
+async function viaSorftime(kind, p) {
+  if (!HAS_SORFTIME) throw new Error('sorftime: SORFTIME_KEY not set');
+  const size = parseInt(p.size, 10) || 25;
+  const maxPages = clampInt(parseInt(p._sorftimeMaxPages, 10) || DEFAULTS.sorftimeMaxPages, 1, 20, DEFAULTS.sorftimeMaxPages);
+  const fullname = (v) => `t3_${String(v).replace(/^t3_/, '')}`;
+
+  if (kind === 'comment') {
+    if (!p.link_id) throw new Error('sorftime: comment listing needs a post id (no subreddit firehose)');
+    const rows = [];
+    for (let page = 1; page <= maxPages && rows.length < size; page++) {
+      const json = await sorftimeCall('reddit_comment_request', { reddit_id: fullname(p.link_id), page });
+      const data = json && Array.isArray(json.data) ? json.data : [];
+      rows.push(...data);
+      const total = data.length ? Number(data[0].item_total) || 0 : 0;
+      if (data.length < 20 || (total && rows.length >= total)) break;
+    }
+    if (!rows.length) throw new Error('sorftime: no comments indexed for this post');
+    return sorftimeToComments(rows.slice(0, size), String(p.link_id).replace(/^t3_/, ''));
+  }
+
+  if (p.ids) {
+    const json = await sorftimeCall('reddit_post_request', { reddit_id: fullname(p.ids) });
+    const post = json && json.data ? sorftimeToPost(json.data, { full: true }) : null;
+    if (!post) throw new Error('sorftime: post not indexed');
+    return [post];
+  }
+
+  if (!p.q) throw new Error('sorftime: subreddit listings unsupported; needs a search query');
+
+  const rows = [];
+  const seen = new Set();
+  for (let page = 1; page <= maxPages && rows.length < size; page++) {
+    // Send filters only when set: an explicit empty post_type / zero sentiment
+    // makes Sorftime answer "No data available." instead of ignoring them.
+    const json = await sorftimeCall('reddit_post_search', {
+      search_name: String(p.q),
+      ...(p._postType ? { post_type: p._postType } : {}),
+      ...(p._sentiment ? { main_sentiment: p._sentiment } : {}),
+      page,
+    });
+    const data = json && Array.isArray(json.data) ? json.data : [];
+    for (const r of data) {
+      const post = sorftimeToPost(r);
+      if (!post || seen.has(post.id)) continue;
+      // No server-side subreddit filter: narrow client-side when one was asked for.
+      if (p.subreddit && String(post.subreddit || '').toLowerCase() !== String(p.subreddit).toLowerCase()) continue;
+      seen.add(post.id);
+      rows.push(post);
+      if (rows.length >= size) break;
+    }
+    const total = data.length ? Number(data[0].item_total) || 0 : 0;
+    if (data.length < 20 || (total && page * 20 >= total)) break;
+  }
+  return p.after ? rows.filter((r) => !r.created_utc || r.created_utc >= Number(p.after)) : rows;
+}
+
 async function viaArctic(kind, p) {
   // Arctic Shift cannot search across all of Reddit — it requires subreddit or author.
   if (p.q && !p.subreddit && !p.author && !p.link_id && !p.ids) {
@@ -920,6 +1146,7 @@ const BACKENDS = {
   arctic: viaArctic,
   tikhub: viaTikhub,
   serpapi: viaSerpapi,
+  sorftime: viaSorftime,
 };
 
 const BACKEND_NAMES = ['auto', ...Object.keys(BACKENDS)];
@@ -935,28 +1162,39 @@ function buildChain(kind, p) {
       if (n === 'tikhub' && !HAS_TIKHUB) continue;
       if (n === 'serpapi' && !SERPAPI_KEY) continue;
       if (n === 'reddit' && !HAS_REDDIT_CREDS) continue;
+      if (n === 'sorftime' && !HAS_SORFTIME) continue;
       chain.push(n);
     }
   };
+
+  // Post-type / sentiment filters exist only on Sorftime; any other backend would
+  // return unfiltered rows that look filtered.
+  if (p._postType || p._sentiment) {
+    if (!HAS_SORFTIME) throw new Error('--postType / --sentiment need SORFTIME_KEY (only Sorftime tags posts)');
+    return ['sorftime'];
+  }
 
   // The official API, when configured, is best at everything and has no feed
   // rate limit — it leads every route.
   push('reddit');
 
   if (kind === 'comment') {
-    if (p._wantNested) push('tikhub', 'arctic', 'rss');   // only tikhub has real trees
-    else push('arctic', 'rss', 'tikhub');
+    // tikhub has real trees; sorftime's are rebuilt from parent ids
+    if (p._wantNested) push('tikhub', 'sorftime', 'arctic', 'rss');
+    else push('arctic', 'sorftime', 'rss', 'tikhub');
     return chain;
   }
 
   if (p.ids) {                                             // fetch a post by id
-    push('arctic', 'rss', 'tikhub');
+    push('arctic', 'sorftime', 'rss', 'tikhub');
     return chain;
   }
 
   const isGlobalSearch = Boolean(p.q) && !p.subreddit;
   if (isGlobalSearch) {                                    // arctic cannot do this at all
-    push('rss', 'tikhub', 'serpapi');
+    // Sorftime leads when keyed: it does not rate-limit like the feed, and its
+    // weeks of lag are caught by the freshness gate on time-windowed searches.
+    push('sorftime', 'rss', 'tikhub', 'serpapi');
     return chain;
   }
 
@@ -979,7 +1217,9 @@ function buildChain(kind, p) {
   }
 
   // Plain new / in-subreddit search: archive first (no rate limit, more rows).
+  // Sorftime can only filter its global search by subreddit, so it comes last.
   push('arctic', 'rss', 'tikhub');
+  if (p.q) push('sorftime');
   return chain;
 }
 
@@ -1100,7 +1340,12 @@ function resultMeta(rows) {
     },
   };
   if (staleWarnings.length) meta.warnings = staleWarnings.slice();
-  if (tikhubRequests > 0) meta.cost = { tikhub_requests: tikhubRequests };
+  if (tikhubRequests > 0 || sorftimeRequests > 0) {
+    meta.cost = {
+      ...(tikhubRequests ? { tikhub_requests: tikhubRequests } : {}),
+      ...(sorftimeRequests ? { sorftime_requests: sorftimeRequests } : {}),
+    };
+  }
   return meta;
 }
 
@@ -1117,6 +1362,7 @@ function rankingNote(sort, servedBy) {
   if (servedBy === 'rss') return `Reddit's own "${sort}" ordering (via Atom feed; no scores available)`;
   if (servedBy === 'tikhub') return `Reddit's own "${sort}" ordering (via TikHub; scores included)`;
   if (servedBy === 'reddit') return `Reddit's own "${sort}" ordering (official API)`;
+  if (servedBy === 'sorftime') return 'Sorftime semantic relevance (no Reddit ranking; titles absent, see voc_tags.summary)';
   return `sorted by ${sort}`;
 }
 
@@ -1165,6 +1411,7 @@ function normalisePost(p) {
     over_18: d.over_18,
     flair: d.link_flair_text || null,
     selftext_snippet: d.selftext ? String(d.selftext).slice(0, 800) : null,
+    ...(d.voc_tags ? { voc_tags: d.voc_tags } : {}),
   };
 }
 
@@ -1282,12 +1529,18 @@ async function cmdSearch(scope, query, args) {
     _time: time,
     _loose: Boolean(args.loose),
     _tikhubMaxPages: args['tikhub-max-pages'],
+    _sorftimeMaxPages: args['sorftime-max-pages'],
+    _postType: sorftimePostTypeParam(args.postType),
+    _sentiment: sorftimeSentimentParam(args.sentiment),
   });
 
   const posts = rows.map(normalisePost);
 
   ok({
     ...resultMeta(posts),
+    ...(args.postType || args.sentiment
+      ? { filters: { post_type: args.postType || null, sentiment: args.sentiment || null } }
+      : {}),
     scope,
     query,
     sort,
@@ -1320,6 +1573,9 @@ async function cmdRecentComments(subreddit, args) {
 function treeNote(servedBy) {
   if (servedBy === 'tikhub' || servedBy === 'reddit') {
     return 'nested reply tree (depth is real); parent_id links replies to parents';
+  }
+  if (servedBy === 'sorftime') {
+    return 'reply tree rebuilt from Sorftime parent ids (depth is real; replies Sorftime has not indexed are missing)';
   }
   return `flat list (${servedBy || 'this backend'} does not expose nested reply threads); use parent_id to reconstruct order`;
 }
@@ -1487,6 +1743,7 @@ async function cmdDoctor() {
     tikhub: ['subreddit listings (full ranking + scores)', 'all-Reddit search', 'nested comment trees', 'post details'],
     reddit: ['everything, full fidelity, no feed rate limit'],
     serpapi: ['all-Reddit keyword search only (Google index)'],
+    sorftime: ['all-Reddit semantic search', 'post type / sentiment filters + AI summary tags', 'full post text', 'comments with likes (tree rebuilt)'],
   };
 
   const probes = [
@@ -1502,6 +1759,8 @@ async function cmdDoctor() {
       // Needs a term whose Google hits are actual /r/*/comments/ threads —
       // a generic word returns Reddit landing pages and looks like a dead backend.
       run: () => viaSerpapi('submission', { q: 'python', size: 3 }) },
+    { name: 'sorftime', configured: HAS_SORFTIME, needs: 'SORFTIME_KEY',
+      run: () => viaSorftime('submission', { q: 'standing desk', size: 3, _sorftimeMaxPages: 1 }) },
   ];
 
   const backends = [];
@@ -1606,6 +1865,7 @@ function usage() {
     'Commands:',
     '  posts <subreddit> [--sort hot|new|top|best|controversial] [--time day|week|month|year|all] [--limit N] [--wantScore]',
     '  search <subreddit|all> <query> [--sort relevance|top|new|comments] [--time all|day|week|month|year] [--limit N] [--loose]',
+    '         [--postType question,advice,complaint,experience,discussion,innovation,other] [--sentiment positive|neutral|negative]  (Sorftime only)',
     '  comments <post_id|url> [--limit N] [--nested] [--includeDeleted true|false] [--maxChars N]',
     '  recent-comments <subreddit> [--limit N] [--maxChars N]',
     '  thread <post_id|url> [--commentLimit N] [--nested] [--includeDeleted true|false] [--maxChars N]',
@@ -1617,12 +1877,13 @@ function usage() {
     'Pass --loose for the original OR behaviour.',
     '',
     'Backends are chosen per query type (ranking -> rss/tikhub, history & bulk -> arctic,',
-    'all-Reddit search -> rss/tikhub/serpapi). data.source says who answered,',
+    'all-Reddit search -> sorftime/rss/tikhub/serpapi). data.source says who answered,',
     'data.backend_trail shows the route, data.freshness shows how new the data is.',
     '',
     'Zero config works: RSS + Arctic Shift need no keys. Optional, via env or a .env',
     'next to the script: REDDIT_CLIENT_ID/SECRET (official API), TIKHUB_API_KEY (paid,',
-    'adds scores + nested comment trees), SERPAPI_API_KEY (extra all-Reddit search).',
+    'adds scores + nested comment trees), SERPAPI_API_KEY (extra all-Reddit search),',
+    'SORFTIME_KEY (stable semantic search + post-type/sentiment tags + full text + comments).',
   ].join('\n');
 }
 

@@ -26,11 +26,12 @@ their strengths genuinely do not overlap. `data.source` reports who answered,
 | `tikhub` | `TIKHUB_API_KEY` (paid) | Only backend with **ranking + scores + nested reply trees** at once | billed per request; ~8 rows/page |
 | `reddit` | `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` | Official API, full fidelity, no feed rate limit | needs a Reddit script app |
 | `serpapi` | `SERPAPI_API_KEY` | Extra all-Reddit search via Google | no scores or timestamps |
+| `sorftime` | `SORFTIME_KEY` | **Stable all-Reddit semantic search**; per-post tags (type, sentiment, product, summary) and type/sentiment filters; full post text; comments with likes + rebuilt reply tree | lags Reddit by weeks; no subreddit listings or ranking; search rows have no title; draws on account quota |
 
 **Zero-config is fully functional**: `rss` + `arctic` together cover every
 command. Keys are additive, never required.
 
-Force one backend with `REDDIT_RO_BACKEND=auto|reddit|rss|arctic|tikhub|serpapi`
+Force one backend with `REDDIT_RO_BACKEND=auto|reddit|rss|arctic|tikhub|serpapi|sorftime`
 (default `auto`).
 
 ### Routing
@@ -38,10 +39,11 @@ Force one backend with `REDDIT_RO_BACKEND=auto|reddit|rss|arctic|tikhub|serpapi`
 | Query | First choice | Then |
 |---|---|---|
 | hot / best / controversial listing | `tikhub` (if keyed) → `rss` | `arctic` (approximated) |
-| new listing, in-subreddit search | `arctic` | `rss`, `tikhub` |
-| all-Reddit search | `rss` | `tikhub`, `serpapi` |
-| nested comment tree (`--nested`) | `tikhub` | `arctic` (flat, labelled) |
-| comments / thread | `arctic` | `rss`, `tikhub` |
+| new listing, in-subreddit search | `arctic` | `rss`, `tikhub`, `sorftime` (search only, subreddit filtered client-side) |
+| all-Reddit search | `sorftime` (if keyed) | `rss`, `tikhub`, `serpapi` |
+| search with `--postType` / `--sentiment` | `sorftime` only | — (errors without the key) |
+| nested comment tree (`--nested`) | `tikhub` | `sorftime` (tree rebuilt from parent ids), `arctic` (flat, labelled) |
+| comments / thread | `arctic` | `sorftime`, `rss`, `tikhub` |
 | history (>30d) or bulk (`find`) | `arctic` | — |
 
 `reddit` leads every route when its credentials are set.
@@ -57,6 +59,7 @@ TIKHUB_API_KEY=...
 REDDIT_CLIENT_ID=...
 REDDIT_CLIENT_SECRET=...
 SERPAPI_API_KEY=...
+SORFTIME_KEY=...
 ```
 
 ### About TikHub
@@ -67,6 +70,25 @@ are always preferred where they can do the same job. Compliance for using it —
 including Reddit's Responsible Builder Policy and any applicable privacy law —
 rests with whoever supplies the key. Every response reports
 `cost.tikhub_requests`; paging is capped (`--tikhub-max-pages`, default 3).
+
+### About Sorftime
+
+Sorftime runs its own Reddit index behind an MCP server (stateless JSON-RPC
+over HTTP, key in the URL). It leads all-Reddit search when keyed because it
+does not rate-limit the way the feed does. Things to know:
+
+- Search rows carry **no title**; `voc_tags.summary` is an **AI-written English
+  summary, not the poster's words** — never quote it as user voice. Pull `thread`
+  for the full post and verbatim comments.
+- The index trails Reddit by weeks. Time-windowed searches (`--time week`) drop
+  older rows and fall through to `rss`.
+- `voc_tags.post_type` uses `problem | inquiry | complaint | experience_share |
+  discussion | innovation | other`; `--postType` accepts those names, the
+  aliases `question|advice|experience`, or codes 1–7.
+- Each page (20 rows) is one quota-billed request; paging is capped
+  (`--sorftime-max-pages`, default 3). Responses report `cost.sorftime_requests`.
+- Sorftime answers "no results" as plain text, so an empty search is reported
+  as `sorftime:empty` in `backend_trail` and the router moves on.
 
 ### Freshness gate
 
@@ -144,6 +166,10 @@ node {baseDir}/scripts/reddit-readonly.mjs search all "<query>" --limit 10
 
 # Opt out of phrase matching (original OR behaviour)
 node {baseDir}/scripts/reddit-readonly.mjs search all "<query>" --loose
+
+# Only complaints and help requests with a negative main post (needs SORFTIME_KEY)
+node {baseDir}/scripts/reddit-readonly.mjs search all "<query>" \
+  --postType complaint,problem --sentiment negative
 ```
 
 **Multi-word queries are phrase-matched by default.** Reddit ORs bare words, so
@@ -157,8 +183,9 @@ search operators (`AND`, `OR`, `title:`) and they are passed through untouched.
 node {baseDir}/scripts/reddit-readonly.mjs comments <post_id|url> \
   --limit 50 [--nested] [--includeDeleted false] [--maxChars 1000]
 ```
-`--nested` asks for a real reply tree (TikHub only); otherwise a flat list comes
-back with `parent_id` for reconstruction. `tree_note` says which you got.
+`--nested` asks for a real reply tree (TikHub, or Sorftime rebuilt from parent
+ids); otherwise a flat list comes back with `parent_id` for reconstruction.
+`tree_note` says which you got.
 
 ### 4) Recent comments across a subreddit
 

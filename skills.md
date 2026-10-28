@@ -85,12 +85,12 @@
 
 | 英文 | 中文 | 说明 |
 |---|---|---|
-| hot | 热门 | （PullPush 后端无实时热度，自动退化为 `new` 最新）|
+| hot | 热门 | Reddit 自己的热度排序（RSS 后端）|
 | new | 最新 | 最新发布的帖子 |
 | top | 高赞 / 高排名 | 某时间窗口内按分数表现最好的帖子 |
 | search | 搜索 | 按关键词检索帖子（跨版 / 单版）|
 
-> 后端说明：v1.1.0 起内置 `reddit-readonly` 通过 PullPush.io 读取（免费、无需鉴权），Reddit 匿名 `.json` 端点已于 2026-05 停用。因此 `hot`/`rising` 无实时排序、评论为扁平列表；`search`/`new`/`top` 与 VOC 挖掘不受影响。
+> 后端说明：内置 `reddit-readonly` 按能力在 6 个后端间路由（RSS / Arctic Shift 零配置；Sorftime / TikHub / 官方 API / SerpApi 配 key 后加入）。配了 `SORFTIME_KEY` 时，全站搜索优先走 Sorftime，结果带 `voc_tags`（post_type / sentiment / product / summary）——`summary` 是 Sorftime 的 AI 摘要，**不是用户原话，不能进原声存档**；原声要用 `thread` 拉全文和评论。
 
 ### 3.2 常用信号标签（signal tags）对照表
 

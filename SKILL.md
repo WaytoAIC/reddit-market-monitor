@@ -43,17 +43,18 @@ description: "Use when the user asks for Reddit market monitoring, subreddit mon
 
 - `node {baseDir}/skills/reddit-readonly/scripts/reddit-readonly.mjs ...`
 
-数据后端（v1.1.0 起）：
+数据后端（v1.5.0）：
 
-- 子技能通过 **PullPush.io** 读取（免费、无需 OAuth / API Key / 登录 / 机器人账号）。Reddit 匿名 `.json` 端点已于 2026-05 停用，数据中心 IP 直连返回 403。
-- 因此抓取模式中 `hot` / `rising` 无法实时获取，会退化为按时间（recency）近似；`top` / `controversial` 按分数近似；评论为**扁平列表**（无嵌套树）。这些不影响监控与 VOC 挖掘。
-- 每条结果仍带真实 `permalink`。
+- 子技能按能力在 6 个后端间自动路由（详见 `skills/reddit-readonly/SKILL.md`）。零配置即可用：Reddit 官方 RSS（真实 hot/new/top 排序 + 全站搜索）+ Arctic Shift 存档（2019 至今、有分数）。
+- 配了 `SORFTIME_KEY` 后，**全站关键词搜索优先走 Sorftime**（不像 RSS 那样限流），并额外拿到每帖的**类型 / 情绪 / 提及产品 / 英文摘要**标签、帖子全文、带点赞和楼层的评论。Sorftime 比 Reddit 晚数周，要"最新"时会被新鲜度闸门自动切走。
+- 每条结果都带真实 `permalink`；返回体的 `source` / `backend_trail` / `freshness` 说明谁答的、走了哪条路、数据多新。
 
 能力边界：
 
-- 可以按 `new`（最新）/ `top`（高赞）浏览 subreddit（`hot` 退化为最新）
+- 可以按 `hot` / `new` / `top` 浏览 subreddit（RSS 给真实排序）
 - 可以按关键词搜索帖子（支持跨版块与单版块）
-- 可以拉取某帖的评论（扁平列表）
+- 可以只搜某类帖子：`--postType complaint,question` + `--sentiment negative`（需 `SORFTIME_KEY`），痛点挖掘首选
+- 可以拉取某帖的评论（Sorftime / TikHub 可还原楼层，其余为扁平列表）
 - 可以生成监控报告、shortlist、digest、VOC archive
 - 报告默认产出 `.md`；可选额外产出带样式的 `.html`（首次使用询问用户 `md` 或 `md+html`，见 skills.md 5B）
 - 不可以发帖、评论、点赞、点踩或做任何 Reddit 交互
@@ -119,7 +120,7 @@ description: "Use when the user asks for Reddit market monitoring, subreddit mon
 - `new`（最新）
 - `top`（高赞，可配合时间窗）
 - `search`（关键词，支持跨版/单版）
-- （`hot` / `rising` 经 PullPush 无实时排序，会退化为 `new`，无需单独跑）
+- （配了 `SORFTIME_KEY` 时，痛点类关键词可加 `--postType complaint,question --sentiment negative` 直接只拿抱怨和求助帖）
 
 同时：
 
